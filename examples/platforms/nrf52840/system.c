@@ -78,14 +78,14 @@ void otSysInit(int argc, char *argv[])
     nrf5RandomInit();
     if (!gPlatformPseudoResetWasRequested)
     {
-#if ((UART_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
+#if ((UART_AS_SERIAL_TRANSPORT == 1) || (UARTE_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
         nrf5UartInit();
 #endif
         nrf5CryptoInit();
     }
     else
     {
-#if ((UART_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
+#if ((UART_AS_SERIAL_TRANSPORT == 1) || (UARTE_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
         nrf5UartClearPendingData();
 #endif
     }
@@ -115,7 +115,7 @@ void otSysDeinit(void)
     if (!gPlatformPseudoResetWasRequested)
     {
         nrf5CryptoDeinit();
-#if ((UART_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
+#if ((UART_AS_SERIAL_TRANSPORT == 1) || (UARTE_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
         nrf5UartDeinit();
 #endif
     }
@@ -135,7 +135,7 @@ bool otSysPseudoResetWasRequested(void)
 void otSysProcessDrivers(otInstance *aInstance)
 {
     nrf5RadioProcess(aInstance);
-#if ((UART_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
+#if ((UART_AS_SERIAL_TRANSPORT == 1) || (UARTE_AS_SERIAL_TRANSPORT == 1) || (USB_CDC_AS_SERIAL_TRANSPORT == 1))
     nrf5UartProcess();
 #endif
     nrf5TempProcess();
