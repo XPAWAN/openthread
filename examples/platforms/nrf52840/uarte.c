@@ -43,7 +43,13 @@
  *   This file implements the OpenThread platform abstraction for libUARTE communication.
  *
  */
+#include "nrf_libuarte_async.h"
+#include "openthread-system.h"
+#include "platform-nrf5.h"
 #include <assert.h>
+#include <hal/nrf_gpio.h>
+#include <hal/nrf_uarte.h>
+#include <openthread-core-config.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -52,22 +58,15 @@
 #include <openthread/config.h>
 #include <openthread/platform/toolchain.h>
 #include <openthread/platform/uart.h>
-#include <hal/nrf_gpio.h>
-#include <hal/nrf_uarte.h>
-#include <openthread-core-config.h>
-#include "nrf_libuarte_async.h"
-#include "openthread-system.h"
-#include "platform-nrf5.h"
-
 
 #if (UARTE_AS_SERIAL_TRANSPORT == 1)
 
 bool sUartEnabled = false;
-NRF_LIBUARTE_ASYNC_DEFINE(libuarte,
-                          0,
-                          3,
+NRF_LIBUARTE_ASYNC_DEFINE(sLibUarte,
+                          NRF_LIBUARTE_UART_INTERFACE_NUM,
+                          NRF_LIBUARTE_COUNTER_INTERFACE_NUM,
                           NRF_LIBUARTE_PERIPHERAL_NOT_USED,
-                          4,
+                          NRF_LIBUARTE_TIMER_INTERFACE_NUM,
                           NRF_LIBUARTE_RX_BUFFER_SIZE,
                           NRF_LIBUARTE_RX_BUFFER_NUM);
 
@@ -80,31 +79,30 @@ static bool sTransmitDone       = false;
 /**
  *  UART RX ring buffer variables.
  */
-static void *         sReceiverBuffer         = NULL;
-static void volatile *sReceiverHead           = NULL;
-static void *         sReceiverTail           = NULL;
-static bool           sReceiverBufferOverflow = false;
-static void *         sReceiverOverflowHead   = NULL;
-static void *         sReceiverOverflowBuff   = NULL;
+static void *         sReceiveBuffer         = NULL;
+static void volatile *sReceiveTail           = NULL;
+static void volatile *sReceiveHead           = NULL;
+static bool           sReceiveOverflowBuffer = false;
+static void *         sReceiveOverflowHead   = NULL;
+static void *         sReceiveOverflowBuff   = NULL;
 
 /**
  * Function for notifying application about new bytes received.
  */
 static void processReceive(void)
 {
-    int received_bytes = sReceiverHead - sReceiverTail;
+    int received_bytes = sReceiveTail - sReceiveHead;
 
+    otEXPECT_ACTION(sTransmitInProgress == false, error = OT_ERROR_BUSY);
     if (received_bytes)
     {
-        otPlatUartReceived(sReceiverTail, received_bytes);
-        nrf_libuarte_async_rx_free(&libuarte, sReceiverTail, received_bytes);
-        sReceiverTail += received_bytes;
+        otPlatUartReceived(sReceiveHead, received_bytes);
+        nrf_libuarte_async_rx_free(&sLibUarte, sReceiveHead, received_bytes);
+        sReceiveHead += received_bytes;
     }
-}
 
-otError otPlatUartFlush(void)
-{
-    return OT_ERROR_NOT_IMPLEMENTED;
+exit:
+    return;
 }
 
 /**
@@ -112,13 +110,16 @@ otError otPlatUartFlush(void)
  */
 static void processTransmit(void)
 {
-    if (sTransmitInProgress && sTransmitDone)
-    {
-        // Clear Transmition transaction and notify application.
-        sTransmitDone       = false;
-        sTransmitInProgress = false;
-        otPlatUartSendDone();
-    }
+    otEXPECT(sTransmitInProgress == true);
+    otEXPECT(sTransmitDone == true);
+
+    // Clear Transmition transaction and notify application.
+    sTransmitDone       = false;
+    sTransmitInProgress = false;
+    otPlatUartSendDone();
+
+exit:
+    return;
 }
 
 void nrf5UartProcess(void)
@@ -145,7 +146,7 @@ void nrf5UartDeinit(void)
     }
 }
 
-void uart_event_handler(void *context, nrf_libuarte_async_evt_t *p_evt)
+void uart_event_handler(void *aContext, nrf_libuarte_async_evt_t *p_evt)
 {
     switch (p_evt->type)
     {
@@ -153,40 +154,40 @@ void uart_event_handler(void *context, nrf_libuarte_async_evt_t *p_evt)
         break;
     case NRF_LIBUARTE_ASYNC_EVT_RX_DATA:
 
-        if (sReceiverBuffer == NULL)
+        if (sReceiveBuffer == NULL)
         {
-            sReceiverBuffer = p_evt->data.rxtx.p_data;
-            sReceiverHead   = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
-            sReceiverTail   = p_evt->data.rxtx.p_data;
+            sReceiveBuffer = p_evt->data.rxtx.p_data;
+            sReceiveTail   = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
+            sReceiveHead   = p_evt->data.rxtx.p_data;
         }
-        else if (sReceiverHead == p_evt->data.rxtx.p_data)
+        else if (sReceiveTail == p_evt->data.rxtx.p_data)
         {
-            sReceiverHead = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
+            sReceiveTail = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
         }
-        else if (sReceiverBufferOverflow == false) // libuarte buffer overflow
+        else if (sReceiveOverflowBuffer == false) // libuarte buffer overflow
         {
-            if (sReceiverHead == sReceiverTail)
+            if (sReceiveTail == sReceiveHead)
             {
-                sReceiverBuffer = p_evt->data.rxtx.p_data;
-                sReceiverTail   = p_evt->data.rxtx.p_data;
-                sReceiverHead   = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
+                sReceiveBuffer = p_evt->data.rxtx.p_data;
+                sReceiveHead   = p_evt->data.rxtx.p_data;
+                sReceiveTail   = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
             }
             else
             {
-                sReceiverBufferOverflow = true;
-                sReceiverOverflowBuff   = p_evt->data.rxtx.p_data;
-                sReceiverOverflowHead   = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
+                sReceiveOverflowBuffer = true;
+                sReceiveOverflowBuff   = p_evt->data.rxtx.p_data;
+                sReceiveOverflowHead   = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
             }
         }
-        else if (sReceiverOverflowHead == p_evt->data.rxtx.p_data)
+        else if (sReceiveOverflowHead == p_evt->data.rxtx.p_data)
         {
-            sReceiverOverflowHead = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
-            if ((sReceiverBufferOverflow == true) && (sReceiverHead == sReceiverTail)) // libuarte buffer overflow
+            sReceiveOverflowHead = p_evt->data.rxtx.p_data + p_evt->data.rxtx.length;
+            if (sReceiveTail == sReceiveHead) // libuarte buffer overflow
             {
-                sReceiverBuffer         = sReceiverOverflowBuff;
-                sReceiverBufferOverflow = false;
-                sReceiverTail           = sReceiverOverflowBuff;
-                sReceiverHead           = sReceiverOverflowHead;
+                sReceiveBuffer         = sReceiveOverflowBuff;
+                sReceiveOverflowBuffer = false;
+                sReceiveHead           = sReceiveOverflowBuff;
+                sReceiveTail           = sReceiveOverflowHead;
             }
         }
         else
@@ -224,8 +225,10 @@ otError otPlatUartEnable(void)
     };
 
     otEXPECT_ACTION(sUartEnabled == false, error = OT_ERROR_ALREADY);
-    err_code = nrf_libuarte_async_init(&libuarte, &nrf_libuarte_async_config, uart_event_handler, (void *)&libuarte);
+
+    err_code = nrf_libuarte_async_init(&sLibUarte, &nrf_libuarte_async_config, uart_event_handler, (void *)&libuarte);
     assert(err_code == NRF_SUCCESS);
+
     nrf_libuarte_async_enable(&libuarte);
     sUartEnabled = true;
 
@@ -238,7 +241,7 @@ otError otPlatUartDisable(void)
     otError error = OT_ERROR_NONE;
 
     otEXPECT_ACTION(sUartEnabled == true, error = OT_ERROR_ALREADY);
-    nrf_libuarte_async_uninit(&libuarte);
+    nrf_libuarte_async_uninit(&sLibUarte);
     sUartEnabled = false;
 
 exit:
@@ -250,16 +253,20 @@ otError otPlatUartSend(const uint8_t *aBuf, uint16_t aBufLength)
     otError    error = OT_ERROR_NONE;
     ret_code_t ret;
 
-    if (sTransmitInProgress == true)
-        return OT_ERROR_BUSY;
+    otEXPECT_ACTION(sTransmitInProgress == false, error = OT_ERROR_BUSY);
+    ret = nrf_libuarte_async_tx(&sLibUarte, (uint8_t *)aBuf, aBufLength);
+    otEXPECT_ACTION(ret == NRF_SUCCESS, error = OT_ERROR_BUSY);
 
     sTransmitInProgress = true;
     sTransmitDone       = false;
-    ret                 = nrf_libuarte_async_tx(&libuarte, (uint8_t *)aBuf, aBufLength);
-    otEXPECT_ACTION(ret == NRF_SUCCESS, error = OT_ERROR_BUSY);
 
 exit:
     return error;
+}
+
+otError otPlatUartFlush(void)
+{
+    return OT_ERROR_NOT_IMPLEMENTED;
 }
 
 #endif // UARTE_AS_SERIAL_TRANSPORT == 1

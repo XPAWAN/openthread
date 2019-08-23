@@ -579,6 +579,27 @@
 #define NRF_LIBUARTE_RX_BUFFER_SIZE 255
 #endif
 
+// <q> NRF_LIBUARTE_UART_INTERFACE_NUM  - The UART interface to use for libUARTE library.
+ 
+ 
+#ifndef NRF_LIBUARTE_UART_INTERFACE_NUM
+#define NRF_LIBUARTE_UART_INTERFACE_NUM 0
+#endif
+
+// <q> NRF_LIBUARTE_COUNTER_INTERFACE_NUM  - TIMER instance used by libuarte for bytes counting.
+ 
+ 
+#ifndef NRF_LIBUARTE_COUNTER_INTERFACE_NUM
+#define NRF_LIBUARTE_COUNTER_INTERFACE_NUM 3
+#endif
+
+// <q> NRF_LIBUARTE_TIMER_INTERFACE_NUM  - TIMER instance used by libuarte for receiver timeout.
+ 
+ 
+#ifndef NRF_LIBUARTE_TIMER_INTERFACE_NUM
+#define NRF_LIBUARTE_TIMER_INTERFACE_NUM 4
+#endif
+
 // <q> NRF_LIBUARTE_UARTE0  - UARTE0 instance
  
 
