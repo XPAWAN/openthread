@@ -576,7 +576,7 @@
  
  
 #ifndef NRF_LIBUARTE_RX_BUFFER_SIZE
-#define NRF_LIBUARTE_RX_BUFFER_SIZE 255
+#define NRF_LIBUARTE_RX_BUFFER_SIZE 256
 #endif
 
 // <q> NRF_LIBUARTE_UART_INTERFACE_NUM  - The UART interface to use for libUARTE library.

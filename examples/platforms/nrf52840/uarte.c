@@ -93,16 +93,12 @@ static void processReceive(void)
 {
     int received_bytes = sReceiveTail - sReceiveHead;
 
-    otEXPECT_ACTION(sTransmitInProgress == false, error = OT_ERROR_BUSY);
     if (received_bytes)
     {
-        otPlatUartReceived(sReceiveHead, received_bytes);
-        nrf_libuarte_async_rx_free(&sLibUarte, sReceiveHead, received_bytes);
+        otPlatUartReceived((void *)sReceiveHead, received_bytes);
+        nrf_libuarte_async_rx_free(&sLibUarte, (void *)sReceiveHead, received_bytes);
         sReceiveHead += received_bytes;
     }
-
-exit:
-    return;
 }
 
 /**
@@ -110,16 +106,14 @@ exit:
  */
 static void processTransmit(void)
 {
-    otEXPECT(sTransmitInProgress == true);
-    otEXPECT(sTransmitDone == true);
-
-    // Clear Transmition transaction and notify application.
-    sTransmitDone       = false;
-    sTransmitInProgress = false;
-    otPlatUartSendDone();
-
-exit:
-    return;
+    if (sTransmitDone == true)
+    {
+        assert(sTransmitInProgress);
+        // Clear Transmition transaction and notify application.
+        sTransmitDone       = false;
+        sTransmitInProgress = false;
+        otPlatUartSendDone();
+    }
 }
 
 void nrf5UartProcess(void)
@@ -226,10 +220,10 @@ otError otPlatUartEnable(void)
 
     otEXPECT_ACTION(sUartEnabled == false, error = OT_ERROR_ALREADY);
 
-    err_code = nrf_libuarte_async_init(&sLibUarte, &nrf_libuarte_async_config, uart_event_handler, (void *)&libuarte);
+    err_code = nrf_libuarte_async_init(&sLibUarte, &nrf_libuarte_async_config, uart_event_handler, (void *)&sLibUarte);
     assert(err_code == NRF_SUCCESS);
 
-    nrf_libuarte_async_enable(&libuarte);
+    nrf_libuarte_async_enable(&sLibUarte);
     sUartEnabled = true;
 
 exit:
