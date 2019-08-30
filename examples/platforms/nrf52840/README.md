@@ -104,6 +104,19 @@ single transfer size limitation.
 
 [spi-hdlc-adapter]: https://github.com/openthread/openthread/tree/master/tools/spi-hdlc-adapter
 
+### UART with EasyDMA support (libUARTE)
+
+libUARTE is a module with support for the UART with EasyDMA.
+It enables reliable communication over the UARTE peripheral.
+
+Compared with UART, using UARTE provides reduction in power consumption and CPU activity.
+However, the library requires 2 additional Timers and 8 PPIs to operate, as well as increased flash and RAM size.
+
+To build libraries with support for libUARTE, build the firmware with the following parameter:
+```
+$ make -f examples/Makefile-nrf52840 UARTE=1
+```
+
 ### Optional prefix for compiler command
 
 You can prefix the compiler command using the CCPREFIX parameter. This speeds up the compilation when you use tools like [ccache][ccache-website]. Example usage:

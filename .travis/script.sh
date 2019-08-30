@@ -209,6 +209,17 @@ build_nrf52840() {
     arm-none-eabi-size  output/nrf52840/bin/ot-ncp-mtd || die
     arm-none-eabi-size  output/nrf52840/bin/ot-rcp || die
 
+    # UARTE transport
+    git checkout -- . || die
+    git clean -xfd || die
+    ./bootstrap || die
+    UARTE=1 make -f examples/Makefile-nrf52840 $OPENTHREAD_FLAGS || die
+    arm-none-eabi-size  output/nrf52840/bin/ot-cli-ftd || die
+    arm-none-eabi-size  output/nrf52840/bin/ot-cli-mtd || die
+    arm-none-eabi-size  output/nrf52840/bin/ot-ncp-ftd || die
+    arm-none-eabi-size  output/nrf52840/bin/ot-ncp-mtd || die
+    arm-none-eabi-size  output/nrf52840/bin/ot-rcp || die
+
     # SPI transport for NCP
     git checkout -- . || die
     git clean -xfd || die

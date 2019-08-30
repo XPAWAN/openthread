@@ -45,7 +45,7 @@
 #include <openthread/config.h>
 
 /*******************************************************************************
- * @section UART Driver Configuration.
+ * @section UART / UARTE Driver Configuration.
  ******************************************************************************/
 
 /**
@@ -53,23 +53,38 @@
  *
  * UART Instance.
  *
+ * Note that this configuration does not apply to the UARTE implementation.
+ * Please use sdk_config.h to configure libUARTE library.
+ *
  */
 #ifndef UART_INSTANCE
 #define UART_INSTANCE NRF_UART0
 #endif
 
 /**
- * @def UART_PARITY
+ *  @def UART_IRQN
  *
- * UART Parity configuration.
+ * UART Interrupt number.
  *
- * @brief Possible values:
- *         \ref NRF_UART_PARITY_EXCLUDED - Parity bit is not present.
- *         \ref NRF_UART_PARITY_INCLUDED - Parity bit is present.
+ * Note that this configuration does not apply to the UARTE implementation.
+ * Please use sdk_config.h to configure libUARTE library.
  *
  */
-#ifndef UART_PARITY
-#define UART_PARITY NRF_UART_PARITY_EXCLUDED
+#ifndef UART_IRQN
+#define UART_IRQN UARTE0_UART0_IRQn
+#endif
+
+/**
+ * @def UART_RX_BUFFER_SIZE
+ *
+ * UART Receive buffer size.
+ *
+ * Note that this configuration does not apply to the UARTE implementation.
+ * Please use sdk_config.h to configure libUARTE library.
+ *
+ */
+#ifndef UART_RX_BUFFER_SIZE
+#define UART_RX_BUFFER_SIZE 256
 #endif
 
 /**
@@ -111,16 +126,6 @@
 #endif
 
 /**
- *  @def UART_IRQN
- *
- * UART Interrupt number.
- *
- */
-#ifndef UART_IRQN
-#define UART_IRQN UARTE0_UART0_IRQn
-#endif
-
-/**
  * @def UART_IRQ_PRIORITY
  *
  * UART Interrupt priority.
@@ -128,16 +133,6 @@
  */
 #ifndef UART_IRQ_PRIORITY
 #define UART_IRQ_PRIORITY 6
-#endif
-
-/**
- * @def UART_RX_BUFFER_SIZE
- *
- * UART Receive buffer size.
- *
- */
-#ifndef UART_RX_BUFFER_SIZE
-#define UART_RX_BUFFER_SIZE 256
 #endif
 
 /**
@@ -178,6 +173,16 @@
  */
 #ifndef UART_PIN_RTS
 #define UART_PIN_RTS 5
+#endif
+
+/**
+ * @def UART_TIMEOUT
+ *
+ * Receiver timeout in us unit.
+ *
+ */
+#ifndef UARTE_TIMEOUT
+#define UARTE_TIMEOUT 100
 #endif
 
 /*******************************************************************************

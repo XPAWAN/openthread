@@ -480,6 +480,59 @@
 #define BSP_SELF_PINRESET_PIN NRF_GPIO_PIN_MAP(0, 19)
 #endif
 
+// <e> NRF_BALLOC_ENABLED - nrf_balloc - Block allocator module
+//==========================================================
+#ifndef NRF_BALLOC_ENABLED
+#define NRF_BALLOC_ENABLED 1
+#endif
+// <e> NRF_BALLOC_CONFIG_DEBUG_ENABLED - Enables debug mode in the module.
+//==========================================================
+#ifndef NRF_BALLOC_CONFIG_DEBUG_ENABLED
+#define NRF_BALLOC_CONFIG_DEBUG_ENABLED 0
+#endif
+// <o> NRF_BALLOC_CONFIG_HEAD_GUARD_WORDS - Number of words used as head guard.  <0-255> 
+
+
+#ifndef NRF_BALLOC_CONFIG_HEAD_GUARD_WORDS
+#define NRF_BALLOC_CONFIG_HEAD_GUARD_WORDS 1
+#endif
+
+// <o> NRF_BALLOC_CONFIG_TAIL_GUARD_WORDS - Number of words used as tail guard.  <0-255> 
+
+
+#ifndef NRF_BALLOC_CONFIG_TAIL_GUARD_WORDS
+#define NRF_BALLOC_CONFIG_TAIL_GUARD_WORDS 1
+#endif
+
+// <q> NRF_BALLOC_CONFIG_BASIC_CHECKS_ENABLED  - Enables basic checks in this module.
+ 
+
+#ifndef NRF_BALLOC_CONFIG_BASIC_CHECKS_ENABLED
+#define NRF_BALLOC_CONFIG_BASIC_CHECKS_ENABLED 0
+#endif
+
+// <q> NRF_BALLOC_CONFIG_DOUBLE_FREE_CHECK_ENABLED  - Enables double memory free check in this module.
+ 
+
+#ifndef NRF_BALLOC_CONFIG_DOUBLE_FREE_CHECK_ENABLED
+#define NRF_BALLOC_CONFIG_DOUBLE_FREE_CHECK_ENABLED 0
+#endif
+
+// <q> NRF_BALLOC_CONFIG_DATA_TRASHING_CHECK_ENABLED  - Enables free memory corruption check in this module.
+ 
+
+#ifndef NRF_BALLOC_CONFIG_DATA_TRASHING_CHECK_ENABLED
+#define NRF_BALLOC_CONFIG_DATA_TRASHING_CHECK_ENABLED 0
+#endif
+
+// <q> NRF_BALLOC_CLI_CMDS  - Enable CLI commands specific to the module
+ 
+
+#ifndef NRF_BALLOC_CLI_CMDS
+#define NRF_BALLOC_CLI_CMDS 0
+#endif
+
+
 // <q> NRF_DFU_TRIGGER_USB_USB_SHARED
 
 // <i> Flag indicating whether USB is used for other purposes in the application.
@@ -497,6 +550,246 @@
 
 #ifndef NRF_DFU_TRIGGER_USB_INTERFACE_NUM
 #define NRF_DFU_TRIGGER_USB_INTERFACE_NUM 0
+#endif
+
+// </h> 
+//==========================================================
+
+// <h> nrf_libuarte - libUARTE library
+
+//==========================================================
+// <q> NRF_LIBUARTE_ASYNC_WITH_APP_TIMER  - Enable app_timer timeout for any libuarte async instance
+ 
+
+#ifndef NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
+#define NRF_LIBUARTE_ASYNC_WITH_APP_TIMER 0
+#endif
+
+// <q> NRF_LIBUARTE_RX_BUFFER_NUM  - Number of libUARTE recevier buffers
+ 
+ 
+#ifndef NRF_LIBUARTE_RX_BUFFER_NUM
+#define NRF_LIBUARTE_RX_BUFFER_NUM 3
+#endif
+
+// <q> NRF_LIBUARTE_RX_BUFFER_SIZE  - Size of libUARTE receiver buffer
+ 
+ 
+#ifndef NRF_LIBUARTE_RX_BUFFER_SIZE
+#define NRF_LIBUARTE_RX_BUFFER_SIZE 128
+#endif
+
+// <q> NRF_LIBUARTE_UART_INTERFACE_NUM  - The UART interface to use for libUARTE library.
+ 
+ 
+#ifndef NRF_LIBUARTE_UART_INTERFACE_NUM
+#define NRF_LIBUARTE_UART_INTERFACE_NUM 0
+#endif
+
+// <q> NRF_LIBUARTE_COUNTER_INTERFACE_NUM  - TIMER instance used by libuarte for bytes counting.
+ 
+ 
+#ifndef NRF_LIBUARTE_COUNTER_INTERFACE_NUM
+#define NRF_LIBUARTE_COUNTER_INTERFACE_NUM 3
+#endif
+
+// <q> NRF_LIBUARTE_TIMER_INTERFACE_NUM  - TIMER instance used by libuarte for receiver timeout.
+ 
+ 
+#ifndef NRF_LIBUARTE_TIMER_INTERFACE_NUM
+#define NRF_LIBUARTE_TIMER_INTERFACE_NUM 4
+#endif
+
+// <q> NRF_LIBUARTE_UARTE0  - UARTE0 instance
+ 
+
+#ifndef NRF_LIBUARTE_UARTE0
+#define NRF_LIBUARTE_UARTE0 1
+#endif
+
+// <q> NRF_LIBUARTE_UARTE1  - UARTE1 instance
+ 
+ 
+#ifndef NRF_LIBUARTE_UARTE1
+#define NRF_LIBUARTE_UARTE1 0
+#endif
+
+// </h>
+
+// <e> NRF_QUEUE_ENABLED - nrf_queue - Queue module
+//==========================================================
+#ifndef NRF_QUEUE_ENABLED
+#define NRF_QUEUE_ENABLED 1
+#endif
+// <q> NRF_QUEUE_CLI_CMDS  - Enable CLI commands specific to the module
+ 
+
+#ifndef NRF_QUEUE_CLI_CMDS
+#define NRF_QUEUE_CLI_CMDS 0
+#endif
+
+// </e>
+
+// <e> NRFX_TIMER_ENABLED - nrfx_timer - TIMER periperal driver
+//==========================================================
+#ifndef NRFX_TIMER_ENABLED
+#define NRFX_TIMER_ENABLED 1
+#endif
+// <q> NRFX_TIMER0_ENABLED  - Enable TIMER0 instance
+ 
+
+#ifndef NRFX_TIMER0_ENABLED
+#define NRFX_TIMER0_ENABLED 0
+#endif
+
+// <q> NRFX_TIMER1_ENABLED  - Enable TIMER1 instance
+ 
+
+#ifndef NRFX_TIMER1_ENABLED
+#define NRFX_TIMER1_ENABLED 0
+#endif
+
+// <q> NRFX_TIMER2_ENABLED  - Enable TIMER2 instance
+ 
+
+#ifndef NRFX_TIMER2_ENABLED
+#define NRFX_TIMER2_ENABLED 0
+#endif
+
+// <q> NRFX_TIMER3_ENABLED  - Enable TIMER3 instance
+ 
+
+#ifndef NRFX_TIMER3_ENABLED
+#define NRFX_TIMER3_ENABLED 1
+#endif
+
+// <q> NRFX_TIMER4_ENABLED  - Enable TIMER4 instance
+ 
+
+#ifndef NRFX_TIMER4_ENABLED
+#define NRFX_TIMER4_ENABLED 1
+#endif
+
+
+// <o> NRFX_TIMER_DEFAULT_CONFIG_FREQUENCY  - Timer frequency if in Timer mode
+ 
+// <0=> 16 MHz 
+// <1=> 8 MHz 
+// <2=> 4 MHz 
+// <3=> 2 MHz 
+// <4=> 1 MHz 
+// <5=> 500 kHz 
+// <6=> 250 kHz 
+// <7=> 125 kHz 
+// <8=> 62.5 kHz 
+// <9=> 31.25 kHz 
+
+#ifndef NRFX_TIMER_DEFAULT_CONFIG_FREQUENCY
+#define NRFX_TIMER_DEFAULT_CONFIG_FREQUENCY 0
+#endif
+
+// <o> NRFX_TIMER_DEFAULT_CONFIG_MODE  - Timer mode or operation
+ 
+// <0=> Timer 
+// <1=> Counter 
+
+#ifndef NRFX_TIMER_DEFAULT_CONFIG_MODE
+#define NRFX_TIMER_DEFAULT_CONFIG_MODE 0
+#endif
+
+// <o> NRFX_TIMER_DEFAULT_CONFIG_BIT_WIDTH  - Timer counter bit width
+ 
+// <0=> 16 bit 
+// <1=> 8 bit 
+// <2=> 24 bit 
+// <3=> 32 bit 
+
+#ifndef NRFX_TIMER_DEFAULT_CONFIG_BIT_WIDTH
+#define NRFX_TIMER_DEFAULT_CONFIG_BIT_WIDTH 0
+#endif
+
+// <o> NRFX_TIMER_DEFAULT_CONFIG_IRQ_PRIORITY  - Interrupt priority
+ 
+// <0=> 0 (highest) 
+// <1=> 1 
+// <2=> 2 
+// <3=> 3 
+// <4=> 4 
+// <5=> 5 
+// <6=> 6 
+// <7=> 7 
+
+#ifndef NRFX_TIMER_DEFAULT_CONFIG_IRQ_PRIORITY
+#define NRFX_TIMER_DEFAULT_CONFIG_IRQ_PRIORITY 6
+#endif
+
+
+// <e> NRFX_PPI_ENABLED - nrfx_ppi - PPI peripheral allocator
+//==========================================================
+#ifndef NRFX_PPI_ENABLED
+#define NRFX_PPI_ENABLED 1
+#endif
+
+// </e>
+
+// <e> NRFX_RTC_ENABLED - nrfx_rtc - RTC peripheral driver
+//==========================================================
+#ifndef NRFX_RTC_ENABLED
+#define NRFX_RTC_ENABLED 0
+#endif
+// <q> NRFX_RTC0_ENABLED  - Enable RTC0 instance
+ 
+
+#ifndef NRFX_RTC0_ENABLED
+#define NRFX_RTC0_ENABLED 0
+#endif
+
+// <q> NRFX_RTC1_ENABLED  - Enable RTC1 instance
+ 
+
+#ifndef NRFX_RTC1_ENABLED
+#define NRFX_RTC1_ENABLED 0
+#endif
+
+// <q> NRFX_RTC2_ENABLED  - Enable RTC2 instance
+ 
+
+#ifndef NRFX_RTC2_ENABLED
+#define NRFX_RTC2_ENABLED 0
+#endif
+
+// <o> NRFX_RTC_MAXIMUM_LATENCY_US - Maximum possible time[us] in highest priority interrupt 
+#ifndef NRFX_RTC_MAXIMUM_LATENCY_US
+#define NRFX_RTC_MAXIMUM_LATENCY_US 2000
+#endif
+
+// <o> NRFX_RTC_DEFAULT_CONFIG_FREQUENCY - Frequency  <16-32768> 
+
+
+#ifndef NRFX_RTC_DEFAULT_CONFIG_FREQUENCY
+#define NRFX_RTC_DEFAULT_CONFIG_FREQUENCY 32768
+#endif
+
+// <q> NRFX_RTC_DEFAULT_CONFIG_RELIABLE  - Ensures safe compare event triggering
+ 
+
+#ifndef NRFX_RTC_DEFAULT_CONFIG_RELIABLE
+#define NRFX_RTC_DEFAULT_CONFIG_RELIABLE 0
+#endif
+
+// <o> NRFX_RTC_DEFAULT_CONFIG_IRQ_PRIORITY  - Interrupt priority
+ 
+// <0=> 0 (highest) 
+// <1=> 1 
+// <2=> 2 
+// <3=> 3 
+// <4=> 4 
+// <5=> 5 
+// <6=> 6 
+// <7=> 7 
+
+#ifndef NRFX_RTC_DEFAULT_CONFIG_IRQ_PRIORITY
+#define NRFX_RTC_DEFAULT_CONFIG_IRQ_PRIORITY 6
 #endif
 
 // </h>
