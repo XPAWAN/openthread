@@ -59,17 +59,23 @@
 #endif
 
 /**
- * @def UART_PARITY
+ *  @def UART_IRQN
  *
- * UART Parity configuration.
- *
- * @brief Possible values:
- *         \ref NRF_UART_PARITY_EXCLUDED - Parity bit is not present.
- *         \ref NRF_UART_PARITY_INCLUDED - Parity bit is present.
+ * UART Interrupt number.
  *
  */
-#ifndef UART_PARITY
-#define UART_PARITY NRF_UART_PARITY_EXCLUDED
+#ifndef UART_IRQN
+#define UART_IRQN UARTE0_UART0_IRQn
+#endif
+
+/**
+ * @def UART_RX_BUFFER_SIZE
+ *
+ * UART Receive buffer size.
+ *
+ */
+#ifndef UART_RX_BUFFER_SIZE
+#define UART_RX_BUFFER_SIZE 256
 #endif
 
 /**
@@ -111,16 +117,6 @@
 #endif
 
 /**
- *  @def UART_IRQN
- *
- * UART Interrupt number.
- *
- */
-#ifndef UART_IRQN
-#define UART_IRQN UARTE0_UART0_IRQn
-#endif
-
-/**
  * @def UART_IRQ_PRIORITY
  *
  * UART Interrupt priority.
@@ -128,16 +124,6 @@
  */
 #ifndef UART_IRQ_PRIORITY
 #define UART_IRQ_PRIORITY 6
-#endif
-
-/**
- * @def UART_RX_BUFFER_SIZE
- *
- * UART Receive buffer size.
- *
- */
-#ifndef UART_RX_BUFFER_SIZE
-#define UART_RX_BUFFER_SIZE 256
 #endif
 
 /**

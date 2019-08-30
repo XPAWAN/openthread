@@ -187,9 +187,9 @@ otError otPlatUartEnable(void)
     nrf_gpio_cfg_output(UART_PIN_RTS);
     nrf_uart_hwfc_pins_set(UART_INSTANCE, UART_PIN_RTS, UART_PIN_CTS);
 
-    nrf_uart_configure(UART_INSTANCE, UART_PARITY, NRF_UART_HWFC_ENABLED);
+    nrf_uart_configure(UART_INSTANCE, NRF_UART_PARITY_EXCLUDED, NRF_UART_HWFC_ENABLED);
 #else
-    nrf_uart_configure(UART_INSTANCE, UART_PARITY, NRF_UART_HWFC_DISABLED);
+    nrf_uart_configure(UART_INSTANCE, NRF_UART_PARITY_EXCLUDED, NRF_UART_HWFC_DISABLED);
 #endif
 
     // Configure baudrate.

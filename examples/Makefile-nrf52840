@@ -109,7 +109,11 @@ configure_OPTIONS              += --enable-cli
 ifeq ($(USB),1)
 COMMONCFLAGS                   += -DUSB_CDC_AS_SERIAL_TRANSPORT=1
 else
+ifeq ($(UARTE),1)
+COMMONCFLAGS                   += -DUARTE_AS_SERIAL_TRANSPORT=1
+else
 COMMONCFLAGS                   += -DUART_AS_SERIAL_TRANSPORT=1
+endif # UARTE   == 1
 endif # USB     == 1
 endif # NCP_SPI == 1
 endif # DISABLE_TRANSPORTS

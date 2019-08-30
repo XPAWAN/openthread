@@ -63,7 +63,10 @@ COMMONCPPFLAGS                                                                  
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/app_error                                      \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/atfifo                                         \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/atomic                                         \
+    -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/balloc                                         \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/delay                                          \
+    -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte                                       \
+    -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/queue                                          \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/usb                                            \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/config                                     \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/class/cdc                                  \
@@ -92,6 +95,7 @@ PLATFORM_COMMON_SOURCES                                                         
     src/system.c                                                                                             \
     src/temp.c                                                                                               \
     src/uart.c                                                                                               \
+    src/uarte.c                                                                                              \
     src/usb-cdc-uart.c                                                                                       \
     $(NULL)
 

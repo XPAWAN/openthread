@@ -71,7 +71,10 @@ COMMONCPPFLAGS                                                                  
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/app_error                                                   \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/atfifo                                                      \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/atomic                                                      \
+    -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/balloc                                                      \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/delay                                                       \
+    -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte                                                    \
+    -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/queue                                                       \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/usb                                                         \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/config                                                  \
     -I$(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/class/cdc                                               \
@@ -127,6 +130,15 @@ NORDICSEMI_USB_SOURCES                                                          
     libraries/usb/app_usbd_nrf_dfu_trigger.c                                                                              \
     libraries/usb/nrf_dfu_trigger_usb.c                                                                                   \
     libraries/usb/class/cdc/acm/app_usbd_cdc_acm.c                                                                        \
+    $(NULL)
+
+NORDICSEMI_UARTE_SOURCES                                                                                                = \
+    libraries/balloc/nrf_balloc.c                                                                                         \
+    libraries/libuarte/nrf_libuarte.c                                                                                     \
+    libraries/libuarte/nrf_libuarte_async.c                                                                               \
+    libraries/queue/nrf_queue.c                                                                                           \
+    nrfx/drivers/src/nrfx_ppi.c                                                                                           \
+    nrfx/drivers/src/nrfx_timer.c                                                                                         \
     $(NULL)
 
 NORDICSEMI_NRF52840_SOURCES                                                                                             = \
@@ -205,6 +217,7 @@ libnordicsemi_nrf52840_sdk_a_CPPFLAGS                                           
 libnordicsemi_nrf52840_sdk_a_SOURCES                                                                                    = \
     $(NORDICSEMI_COMMON_SOURCES)                                                                                          \
     $(NORDICSEMI_USB_SOURCES)                                                                                             \
+    $(NORDICSEMI_UARTE_SOURCES)                                                                                           \
     $(NORDICSEMI_NRF52840_SOURCES)                                                                                        \
     $(NULL)
 
@@ -340,7 +353,11 @@ noinst_HEADERS                                                                  
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/atfifo/nrf_atfifo.h                                           \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/atomic/nrf_atomic_internal.h                                  \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/atomic/nrf_atomic.h                                           \
+    $(top_srcdir)/third_party/NordicSemiconductor/libraries/balloc/nrf_balloc.h                                           \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/delay/nrf_delay.h                                             \
+    $(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte/nrf_libuarte.h                                       \
+    $(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte/nrf_libuarte_async.h                                 \
+    $(top_srcdir)/third_party/NordicSemiconductor/libraries/queue/nrf_queue.h                                             \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/app_usbd_class_base.h                                     \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/app_usbd_core.h                                           \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/app_usbd_descriptor.h                                     \
