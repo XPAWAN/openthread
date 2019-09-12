@@ -46,14 +46,22 @@
 #include "nrfx_ppi.h"
 #include "nrfx_timer.h"
 #include "nrfx_rtc.h"
-#include "nrf_libuarte.h"
+#include "nrf_libuarte_drv.h"
 #include <hal/nrf_uarte.h>
 
+/**
+ * @defgroup nrf_libuarte_async libUARTE asynchronous library
+ * @ingroup app_common
+ *
+ * @brief Module for reliable communication over UARTE.
+ *
+ * @{
+ */
 
 /* Safe guard for sdk_config.h now up to date. */
 #ifndef NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
 #warning "sdk_config.h is missing NRF_LIBUARTE_ASYNC_WITH_APP_TIMER option"
-#define NRF_LIBUARTE_ASYNC_WITH_APP_TIMER 1
+#define NRF_LIBUARTE_ASYNC_WITH_APP_TIMER 0
 #endif
 
 #if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
@@ -146,9 +154,11 @@ typedef struct {
 	const nrfx_timer_t * p_timer;
 #if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
 	const app_timer_id_t * p_app_timer;
-	nrf_libuarte_app_timer_ctrl_blk_t * p_app_timer_ctrl_blk;
+#else
+	void ** p_app_timer;
 #endif
-	const nrf_libuarte_t * p_libuarte;
+	nrf_libuarte_app_timer_ctrl_blk_t * p_app_timer_ctrl_blk;
+	const nrf_libuarte_drv_t * p_libuarte;
 	nrf_libuarte_async_ctrl_blk_t * p_ctrl_blk;
 	nrfx_rtc_handler_t rtc_handler;
 	uint32_t rx_buf_size;
@@ -187,22 +197,6 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
 #define _LIBUARTE_ASYNC_EVAL2(one_or_two_args, _iftrue, _iffalse) \
     __LIBUARTE_ASYNC_ARG_2_DEBRACKET(one_or_two_args _iftrue, _iffalse)
 
-#ifndef NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
-#define APP_TIMER_INITIAL_VALUE  \
-              .p_app_timer = _LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_TIMER, _timer1_idx, _ENABLED),\
-	                    (NULL),\
-	                    (_LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_RTC, _rtc1_idx, _ENABLED),(NULL), \
-	                         (&CONCAT_2(_name,_app_timer)))) \
-	            ),\
-              .p_app_timer_ctrl_blk = _LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_TIMER, _timer1_idx, _ENABLED),\
-	                    (NULL),\
-	                    (_LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_RTC, _rtc1_idx, _ENABLED),(NULL), \
-	                         (&CONCAT_2(_name,_app_timer_ctrl_blk)))) \
-	            ),
-#else 
-#define APP_TIMER_INITIAL_VALUE
-#endif
-
 /**
  * @brief Macro for creating instance of libuarte_async.
  *
@@ -233,7 +227,7 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
                     (_rtc1_idx == NRF_LIBUARTE_PERIPHERAL_NOT_USED) && \
                     (_timer1_idx == NRF_LIBUARTE_PERIPHERAL_NOT_USED)), \
                     "App timer support disabled");\
-      NRF_LIBUARTE_DEFINE(CONCAT_2(_name, _libuarte), _uarte_idx, _timer0_idx);\
+      NRF_LIBUARTE_DRV_DEFINE(CONCAT_2(_name, _libuarte), _uarte_idx, _timer0_idx);\
       NRF_QUEUE_DEF(uint8_t *, CONCAT_2(_name,_rxdata_queue), _rx_buf_cnt, NRF_QUEUE_MODE_NO_OVERFLOW);\
       NRF_BALLOC_DEF(CONCAT_2(_name,_rx_pool), _rx_buf_size, _rx_buf_cnt);\
       /* Create TIMER instance only if _timer1_idx != NRF_LIBUARTE_PERIPHERAL_NOT_USED */ \
@@ -255,7 +249,11 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
                    nrf_libuarte_app_timer_ctrl_blk_t CONCAT_2(_name,_app_timer_ctrl_blk);))) \
       )\
       static nrf_libuarte_async_ctrl_blk_t CONCAT_2(_name, ctrl_blk);\
-      /*static*/ void CONCAT_2(_name, _rtc_handler)(nrfx_rtc_int_type_t int_type);\
+      _LIBUARTE_ASYNC_EVAL(\
+              NRFX_CONCAT_3(NRFX_RTC, _rtc1_idx, _ENABLED), \
+              (static void CONCAT_2(_name, _rtc_handler)(nrfx_rtc_int_type_t int_type);),\
+              (/* empty */)) \
+      \
       static const nrf_libuarte_async_t _name = {\
               .p_rx_pool = &CONCAT_2(_name,_rx_pool),\
               .p_rx_queue =  &CONCAT_2(_name,_rxdata_queue),\
@@ -264,7 +262,16 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
               /* If p_timer is not NULL it means that RTC is used for RX timeout */ \
               .p_timer = _LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_TIMER, _timer1_idx, _ENABLED), (&CONCAT_2(_name, _timer)), (NULL)),\
               /* If p_time and p_rtc is NULL it means that app_timer is used for RX timeout */ \
-              APP_TIMER_INITIAL_VALUE \
+              .p_app_timer = _LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_TIMER, _timer1_idx, _ENABLED),\
+	                    (NULL),\
+	                    (_LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_RTC, _rtc1_idx, _ENABLED),(NULL), \
+	                         (&CONCAT_2(_name,_app_timer)))) \
+	            ),\
+              .p_app_timer_ctrl_blk = _LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_TIMER, _timer1_idx, _ENABLED),\
+	                    (NULL),\
+	                    (_LIBUARTE_ASYNC_EVAL(NRFX_CONCAT_3(NRFX_RTC, _rtc1_idx, _ENABLED),(NULL), \
+	                         (&CONCAT_2(_name,_app_timer_ctrl_blk)))) \
+	            ),\
               .p_libuarte = &CONCAT_2(_name, _libuarte),\
               .p_ctrl_blk = &CONCAT_2(_name, ctrl_blk),\
               .rx_buf_size = _rx_buf_size,\
@@ -294,6 +301,7 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
  * @param[in] p_libuarte   Libuarte_async instance.
  * @param[in] p_config     Pointer to the structure with initial configuration.
  * @param[in] evt_handler  Event handler provided by the user. Must not be NULL.
+ * @param[in] context      User context passed to the event handler.
  *
  * @return NRF_SUCCESS when properly initialized. NRF_ERROR_INTERNAL otherwise.
  */
@@ -341,5 +349,7 @@ ret_code_t nrf_libuarte_async_tx(const nrf_libuarte_async_t * const p_libuarte,
  */
 void nrf_libuarte_async_rx_free(const nrf_libuarte_async_t * const p_libuarte,
                                 uint8_t * p_data, size_t length);
+
+/** @} */
 
 #endif //UART_ASYNC_H

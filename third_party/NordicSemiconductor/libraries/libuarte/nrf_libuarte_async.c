@@ -39,10 +39,8 @@
  */
 #include "sdk_config.h"
 #include "nrf_libuarte_async.h"
-#include "nrf_libuarte.h"
 #include "app_error.h"
 #include "nrf_balloc.h"
-#include "nrfx_config.h"
 #include "nrfx_timer.h"
 #include "nrfx_rtc.h"
 #include "nrfx_ppi.h"
@@ -71,6 +69,8 @@ NRF_LOG_MODULE_REGISTER();
 #define TIMER_IN_USE 0
 #endif
 
+#define FAULT_IRQ_LEVEL 0xFF
+
 /** Macro is setting up PPI channel set which consist of event, task and optional fork.
  *
  * @param _ch   Channel.
@@ -93,26 +93,88 @@ NRF_LOG_MODULE_REGISTER();
         }                                               \
     }
 
+/* @brief Function returns interrupt level which is the next,lower priority.
+ *
+ * If SoftDevice is present then it takes into account which priorities are used
+ * by the SoftDevice.
+ *
+ * @note Caller of this function does not check if error is returned. Error is returned if input
+ * priority belongs to SoftDevice. In that case SoftDevice will detect attempt to interrupt level
+ * misuse.
+ *
+ * @param prio Interrupt priority.
+ *
+ * @return Priority which is one level lower or fault indicator (0xFF).
+ */
+static uint8_t irq_prio_inc(uint8_t prio)
+{
+#ifdef SOFTDEVICE_PRESENT
+    static const uint8_t sd_next_irq_lut[] = {
+            FAULT_IRQ_LEVEL, /* 0 used by softdevice */
+            FAULT_IRQ_LEVEL, /* 1 used by softdevice */
+            APP_IRQ_PRIORITY_MID, /* 2 + 1 = 3 */
+            APP_IRQ_PRIORITY_LOW_MID, /* 3 + 1 = 5 as 4 is used by softdevice */
+            FAULT_IRQ_LEVEL, /* 4 used by softdevice */
+            APP_IRQ_PRIORITY_LOW /* 5 + 1 = 6 */,
+            APP_IRQ_PRIORITY_LOWEST, /* 6 + 1 = 7 */
+    };
+    return sd_next_irq_lut[prio];
+#else
+    return prio + 1;
+#endif
+}
+
 #if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
+static void app_timer_handler(void * p_context);
+#define local_app_timer_cnt_get() app_timer_cnt_get()
+#define local_app_timer_start(p_timer, ticks, p_context) app_timer_start(p_timer, ticks, p_context)
+#define local_app_timer_stop(p_timer) app_timer_stop(p_timer)
+#define local_app_timer_create(p_timer) app_timer_create(p_timer, APP_TIMER_MODE_SINGLE_SHOT, app_timer_handler)
+#define local_app_timer_cnt_diff_compute(to, from) app_timer_cnt_diff_compute(to, from)
+#else
+#ifndef APP_TIMER_CONFIG_RTC_FREQUENCY
+#define APP_TIMER_CONFIG_RTC_FREQUENCY 0
+#endif
+
+#ifndef APP_TIMER_CLOCK_FREQ
+#define APP_TIMER_CLOCK_FREQ 1
+#endif
+
+#ifndef APP_TIMER_MIN_TIMEOUT_TICKS
+#define APP_TIMER_MIN_TIMEOUT_TICKS 0
+#endif
+
+#ifndef APP_TIMER_CONFIG_IRQ_PRIORITY
+#define APP_TIMER_CONFIG_IRQ_PRIORITY 1
+#endif
+static void app_timer_handler(void * p_context) __attribute__((unused));
+#define local_app_timer_cnt_get() 0
+#define local_app_timer_start(p_timer, ticks, p_context) NRF_SUCCESS
+#define local_app_timer_stop(p_timer) NRF_SUCCESS
+#define local_app_timer_create(p_timer) NRF_SUCCESS
+#define local_app_timer_cnt_diff_compute(to, from) 0
+#endif
+
 static uint32_t app_timer_ticks_to_us(uint32_t ticks)
 {
-    return (ticks * 1000000) / (APP_TIMER_CLOCK_FREQ/(APP_TIMER_CONFIG_RTC_FREQUENCY + 1));
+    return (uint32_t)(((uint64_t)ticks * 1000000 * (APP_TIMER_CONFIG_RTC_FREQUENCY + 1)) /
+                      APP_TIMER_CLOCK_FREQ);
 }
 
 static uint32_t app_timer_us_to_ticks(uint32_t us)
 {
-    return ((APP_TIMER_CLOCK_FREQ/(APP_TIMER_CONFIG_RTC_FREQUENCY + 1)) * us) / 1000000;
+    return (uint32_t)((((uint64_t)APP_TIMER_CLOCK_FREQ/(APP_TIMER_CONFIG_RTC_FREQUENCY + 1)) * us) /
+                      1000000);
 }
-#endif
 
-static void uart_evt_handler(void * context, nrf_libuarte_evt_t * p_evt)
+static void uart_evt_handler(void * context, nrf_libuarte_drv_evt_t * p_evt)
 {
     ret_code_t ret;
     const nrf_libuarte_async_t * p_libuarte = (const nrf_libuarte_async_t *)context;
 
     switch (p_evt->type)
     {
-    case NRF_LIBUARTE_EVT_TX_DONE:
+    case NRF_LIBUARTE_DRV_EVT_TX_DONE:
     {
         NRF_LOG_DEBUG("(evt) TX completed (%d)", p_evt->data.rxtx.length);
         nrf_libuarte_async_evt_t evt = {
@@ -125,7 +187,7 @@ static void uart_evt_handler(void * context, nrf_libuarte_evt_t * p_evt)
         p_libuarte->p_ctrl_blk->evt_handler(p_libuarte->p_ctrl_blk->context, &evt);
         break;
     }
-    case NRF_LIBUARTE_EVT_RX_BUF_REQ:
+    case NRF_LIBUARTE_DRV_EVT_RX_BUF_REQ:
     {
         uint8_t * p_data = nrf_balloc_alloc(p_libuarte->p_rx_pool);
         if (p_data)
@@ -138,7 +200,7 @@ static void uart_evt_handler(void * context, nrf_libuarte_evt_t * p_evt)
             }
 
             p_libuarte->p_ctrl_blk->alloc_cnt++;
-            nrf_libuarte_rx_buf_rsp(p_libuarte->p_libuarte, p_data, p_libuarte->rx_buf_size);
+            nrf_libuarte_drv_rx_buf_rsp(p_libuarte->p_libuarte, p_data, p_libuarte->rx_buf_size);
         }
         else
         {
@@ -147,7 +209,7 @@ static void uart_evt_handler(void * context, nrf_libuarte_evt_t * p_evt)
         }
         break;
     }
-    case NRF_LIBUARTE_EVT_RX_DATA:
+    case NRF_LIBUARTE_DRV_EVT_RX_DATA:
     {
 
         uint32_t rx_amount = p_evt->data.rxtx.length - p_libuarte->p_ctrl_blk->sub_rx_count;
@@ -190,7 +252,7 @@ static void uart_evt_handler(void * context, nrf_libuarte_evt_t * p_evt)
         }
         break;
     }
-    case NRF_LIBUARTE_EVT_ERROR:
+    case NRF_LIBUARTE_DRV_EVT_ERROR:
     {
         nrf_libuarte_async_evt_t evt = {
             .type = NRF_LIBUARTE_ASYNC_EVT_ERROR
@@ -206,6 +268,8 @@ static void uart_evt_handler(void * context, nrf_libuarte_evt_t * p_evt)
 
 void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
 {
+    NRFX_IRQ_DISABLE((IRQn_Type)NRFX_IRQ_NUMBER_GET(p_libuarte->p_libuarte->uarte));
+
     uint32_t capt_rx_count = p_libuarte->p_libuarte->timer.p_reg->CC[2];
 
     if (capt_rx_count > p_libuarte->p_ctrl_blk->rx_count)
@@ -227,23 +291,26 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
         p_libuarte->p_ctrl_blk->rx_count = capt_rx_count;
         p_libuarte->p_ctrl_blk->evt_handler(p_libuarte->p_ctrl_blk->context, &evt);
     }
+
+    NRFX_IRQ_ENABLE((IRQn_Type)NRFX_IRQ_NUMBER_GET(p_libuarte->p_libuarte->uarte));
 }
+
 static void tmr_evt_handler(nrf_timer_event_t event_type, void * p_context)
 {
     nrf_libuarte_async_timeout_handler((const nrf_libuarte_async_t *)p_context);
 }
 
-#if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
 static void app_timer_handler(void * p_context)
 {
     const nrf_libuarte_async_t * p_libuarte = p_context;
     uint32_t current_rx_count;
-    uint32_t counter = app_timer_cnt_get();
-    uint32_t ticks = MAX(APP_TIMER_MIN_TIMEOUT_TICKS, app_timer_us_to_ticks(p_libuarte->p_ctrl_blk->timeout_us)/2);
+    uint32_t counter = local_app_timer_cnt_get();
+    uint32_t ticks = app_timer_us_to_ticks(p_libuarte->p_ctrl_blk->timeout_us)/2;
+    ticks = MAX(APP_TIMER_MIN_TIMEOUT_TICKS, ticks);
 
     nrf_timer_task_trigger( p_libuarte->p_libuarte->timer.p_reg, NRF_TIMER_TASK_CAPTURE2);
     current_rx_count = p_libuarte->p_libuarte->timer.p_reg->CC[2];
-    app_timer_start(*p_libuarte->p_app_timer, ticks, (void *)p_libuarte);
+    UNUSED_RETURN_VALUE(local_app_timer_start(*p_libuarte->p_app_timer, ticks, (void *)p_libuarte));
 
     if (p_libuarte->p_app_timer_ctrl_blk->rx_count != current_rx_count) {
         p_libuarte->p_app_timer_ctrl_blk->rx_count = current_rx_count;
@@ -258,7 +325,7 @@ static void app_timer_handler(void * p_context)
         /* In case of detected silent period check if its length exceeds configured
          * timeout. If yes trigger timeout handler.
          */
-        diff = app_timer_cnt_diff_compute(counter,
+        diff = local_app_timer_cnt_diff_compute(counter,
                                           p_libuarte->p_app_timer_ctrl_blk->timestamp);
         if (p_libuarte->p_app_timer_ctrl_blk->activate &&
             (app_timer_ticks_to_us(diff) > p_libuarte->p_ctrl_blk->timeout_us)) {
@@ -267,7 +334,6 @@ static void app_timer_handler(void * p_context)
         }
     }
 }
-#endif
 
 ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte,
                                    nrf_libuarte_async_config_t const * p_config,
@@ -276,7 +342,9 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
 {
     ret_code_t ret;
 
-    if (p_config->int_prio == APP_IRQ_PRIORITY_LOWEST) {
+    if (p_config->int_prio == APP_IRQ_PRIORITY_LOWEST ||
+        ((p_libuarte->p_app_timer && NRF_LIBUARTE_ASYNC_WITH_APP_TIMER) &&
+         (p_config->int_prio >= APP_TIMER_CONFIG_IRQ_PRIORITY))) {
         NRF_LOG_ERROR("Too low priority. Lowest possible priority is %d", APP_IRQ_PRIORITY_LOW);
         return NRF_ERROR_INVALID_PARAM;
     }
@@ -301,7 +369,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
     if (p_libuarte->p_rtc && RTC_IN_USE)
     {
         nrfx_rtc_config_t rtc_config = NRFX_RTC_DEFAULT_CONFIG;
-        rtc_config.interrupt_priority = p_config->int_prio + 1;
+        rtc_config.interrupt_priority = irq_prio_inc(p_config->int_prio);
  
         rtc_config.prescaler = 0;
         ret = nrfx_rtc_init(p_libuarte->p_rtc, &rtc_config, p_libuarte->rtc_handler);
@@ -326,7 +394,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
         nrfx_timer_config_t tmr_config = NRFX_TIMER_DEFAULT_CONFIG;
         tmr_config.frequency = NRF_TIMER_FREQ_1MHz;
         tmr_config.p_context = (void *)p_libuarte;
-        tmr_config.interrupt_priority = p_config->int_prio + 1;
+        tmr_config.interrupt_priority = irq_prio_inc(p_config->int_prio);
 
         ret = nrfx_timer_init(p_libuarte->p_timer, &tmr_config, tmr_evt_handler);
         if (ret != NRFX_SUCCESS)
@@ -340,16 +408,14 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
         tmr_stop_tsk = nrfx_timer_task_address_get(p_libuarte->p_timer, NRF_TIMER_TASK_SHUTDOWN);
         tmr_compare_evt = nrfx_timer_compare_event_address_get(p_libuarte->p_timer, 0);
     }
-#if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
     else if (p_libuarte->p_app_timer && NRF_LIBUARTE_ASYNC_WITH_APP_TIMER) {
         /* app_timer in use */
-        ret = app_timer_create(p_libuarte->p_app_timer, APP_TIMER_MODE_SINGLE_SHOT, app_timer_handler);
+        ret = local_app_timer_create(p_libuarte->p_app_timer);
         if (ret != NRF_SUCCESS)
         {
             return ret;
         }
     }
-#endif
     else
     {
         NRF_LOG_ERROR("No timer or rtc defined");
@@ -358,9 +424,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
     }
 
     /* if RTC or TIMER is used then PPI channels are allocated. */
-#if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
-    if (p_libuarte->p_app_timer == NULL )
-#endif
+    if (p_libuarte->p_app_timer == NULL || !NRF_LIBUARTE_ASYNC_WITH_APP_TIMER)
     {
         for (i = 0; i < NRF_LIBUARTE_ASYNC_PPI_CH_MAX; i++)
         {
@@ -385,7 +449,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
         /*lint -restore */
     }
 
-    nrf_libuarte_config_t uart_config = {
+    nrf_libuarte_drv_config_t uart_config = {
         .tx_pin        = p_config->tx_pin,
         .rx_pin        = p_config->rx_pin,
         .cts_pin       = p_config->cts_pin,
@@ -401,7 +465,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
         .pullup_rx     = p_config->pullup_rx,
     };
 
-    ret = nrf_libuarte_init(p_libuarte->p_libuarte, &uart_config, uart_evt_handler, (void *)p_libuarte);
+    ret = nrf_libuarte_drv_init(p_libuarte->p_libuarte, &uart_config, uart_evt_handler, (void *)p_libuarte);
     if (ret != NRF_SUCCESS)
     {
         return ret;
@@ -420,9 +484,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
 
 void nrf_libuarte_async_uninit(const nrf_libuarte_async_t * const p_libuarte)
 {
-    nrfx_err_t err = nrfx_ppi_channel_disable(p_libuarte->p_ctrl_blk->ppi_channels[NRF_LIBUARTE_ASYNC_PPI_CH_RXRDY_CLEAR]);
-    APP_ERROR_CHECK_BOOL(err == NRFX_SUCCESS);
-    nrf_libuarte_uninit(p_libuarte->p_libuarte);
+    nrf_libuarte_drv_uninit(p_libuarte->p_libuarte);
 
     if (p_libuarte->p_rtc && RTC_IN_USE)
     {
@@ -434,17 +496,13 @@ void nrf_libuarte_async_uninit(const nrf_libuarte_async_t * const p_libuarte)
         nrfx_timer_disable(p_libuarte->p_timer);
         nrfx_timer_uninit(p_libuarte->p_timer);
     }
-#if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
     else if (p_libuarte->p_app_timer && NRF_LIBUARTE_ASYNC_WITH_APP_TIMER)
     {
-        app_timer_stop(*p_libuarte->p_app_timer);
+        UNUSED_RETURN_VALUE(local_app_timer_stop(*p_libuarte->p_app_timer));
     }
-#endif
 
     /* if HW timeout was used */
-#if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
-    if (p_libuarte->p_app_timer == NULL )
-#endif
+    if (p_libuarte->p_app_timer == NULL || !NRF_LIBUARTE_ASYNC_WITH_APP_TIMER)
     {
         uint32_t i;
         ret_code_t ret;
@@ -476,15 +534,14 @@ void nrf_libuarte_async_enable(const nrf_libuarte_async_t * const p_libuarte)
     {
         nrfx_timer_clear(p_libuarte->p_timer);
     }
-#if NRF_LIBUARTE_ASYNC_WITH_APP_TIMER
+
     if (p_libuarte->p_app_timer && NRF_LIBUARTE_ASYNC_WITH_APP_TIMER)
     {
-        uint32_t ticks = MAX(APP_TIMER_MIN_TIMEOUT_TICKS,
-                            app_timer_us_to_ticks(p_libuarte->p_ctrl_blk->timeout_us)/2);
-        app_timer_start(*p_libuarte->p_app_timer, ticks, (void *)p_libuarte);
+        uint32_t ticks = app_timer_us_to_ticks(p_libuarte->p_ctrl_blk->timeout_us)/2;
+        ticks = MAX(APP_TIMER_MIN_TIMEOUT_TICKS, ticks);
+        UNUSED_RETURN_VALUE(local_app_timer_start(*p_libuarte->p_app_timer, ticks, (void *)p_libuarte));
     }
     else
-#endif
     {
         nrfx_err_t err;
 
@@ -496,13 +553,13 @@ void nrf_libuarte_async_enable(const nrf_libuarte_async_t * const p_libuarte)
 
 
     p_libuarte->p_ctrl_blk->p_curr_rx_buf = p_data;
-    ret_code_t ret =  nrf_libuarte_rx_start(p_libuarte->p_libuarte, p_data, p_libuarte->rx_buf_size, false);
+    ret_code_t ret =  nrf_libuarte_drv_rx_start(p_libuarte->p_libuarte, p_data, p_libuarte->rx_buf_size, false);
     APP_ERROR_CHECK_BOOL(ret == NRF_SUCCESS);
 }
 
 ret_code_t nrf_libuarte_async_tx(const nrf_libuarte_async_t * const p_libuarte, uint8_t * p_data, size_t length)
 {
-    return nrf_libuarte_tx(p_libuarte->p_libuarte, p_data, length);
+    return nrf_libuarte_drv_tx(p_libuarte->p_libuarte, p_data, length);
 }
 
 void nrf_libuarte_async_rx_free(const nrf_libuarte_async_t * const p_libuarte, uint8_t * p_data, size_t length)
@@ -531,4 +588,5 @@ void nrf_libuarte_async_rx_free(const nrf_libuarte_async_t * const p_libuarte, u
     {
         NRF_LOG_INFO("Freeing partial buffer: 0x%08X, length:%d", p_data, length);
     }
+
 }
