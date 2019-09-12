@@ -134,7 +134,7 @@ NORDICSEMI_USB_SOURCES                                                          
 
 NORDICSEMI_UARTE_SOURCES                                                                                                = \
     libraries/balloc/nrf_balloc.c                                                                                         \
-    libraries/libuarte/nrf_libuarte.c                                                                                     \
+    libraries/libuarte/nrf_libuarte_drv.c                                                                                     \
     libraries/libuarte/nrf_libuarte_async.c                                                                               \
     libraries/queue/nrf_queue.c                                                                                           \
     nrfx/drivers/src/nrfx_ppi.c                                                                                           \
@@ -355,7 +355,7 @@ noinst_HEADERS                                                                  
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/atomic/nrf_atomic.h                                           \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/balloc/nrf_balloc.h                                           \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/delay/nrf_delay.h                                             \
-    $(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte/nrf_libuarte.h                                       \
+    $(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte/nrf_libuarte_drv.h                                       \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/libuarte/nrf_libuarte_async.h                                 \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/queue/nrf_queue.h                                             \
     $(top_srcdir)/third_party/NordicSemiconductor/libraries/usb/app_usbd_class_base.h                                     \

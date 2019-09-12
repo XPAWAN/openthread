@@ -68,17 +68,45 @@ NRF_LIBUARTE_ASYNC_DEFINE(sLibUarte,
 static bool sTransmitStarted = false;
 static bool sTransmitDone    = false;
 
+typedef enum
+{
+    BUFFER_STATUS_EMPTY = 0,
+    BUFFER_STATUS_RECEIVING,
+    BUFFER_STATUS_FILLED
+} bufferReceiverState;
+
 /**
  * @brief UARTE RX buffer variables.
  */
 typedef struct
 {
-    volatile uint8_t *mReadPos;
-    volatile uint8_t *mWritePos;
+    bufferReceiverState mBufferReceiverState;
+    bool                mBufferProcessing;
+    uint8_t *           mBuffPtr;
+    volatile uint8_t *  mReadPos;
+    volatile uint8_t *  mWritePos;
+
 } UarteRxBuffer;
 
 static UarteRxBuffer sRxBuffers[NRF_LIBUARTE_RX_BUFFER_NUM];
-static volatile bool sRxEventPending;
+
+#define TEST_GPIO 25
+uint32_t prev_state          = 1;
+uint8_t  __CR_SECTION_NESTED = 0;
+
+static void InitRxData(void)
+{
+    uint32_t index;
+
+    for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
+    {
+        sRxBuffers[index].mWritePos            = 0;
+        sRxBuffers[index].mReadPos             = 0;
+        sRxBuffers[index].mBuffPtr             = 0;
+        sRxBuffers[index].mBufferReceiverState = BUFFER_STATUS_EMPTY;
+        sRxBuffers[index].mBufferProcessing    = false;
+    }
+}
 
 /**
  * @brief Find the RX buffer index.
@@ -94,19 +122,129 @@ static volatile bool sRxEventPending;
  * @retval  OT_ERROR_NONE       RX buffer has been found.
  * @retval  OT_ERROR_NOT_FOUND  RX buffer has not been found.
  */
-static otError findRxBufferIndex(uint32_t *aIndex, const uint8_t *aBuffer)
+static otError findReceiveBufferIndex(uint32_t *aIndex, const uint8_t *aBuffer)
 {
     otError  error = OT_ERROR_NOT_FOUND;
     uint32_t index;
 
+    // if the buffer index is equal NRF_LIBUARTE_RX_BUFFER_NUM it is considered as invalid.
+    uint32_t emptyBufferIndex = NRF_LIBUARTE_RX_BUFFER_NUM;
+
     for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
     {
-        if (sRxBuffers[index].mWritePos == aBuffer ||
-            (aBuffer == NULL && sRxBuffers[index].mWritePos == sRxBuffers[index].mReadPos))
+        // there should be only one buffer in BUFFER_STATUS_RECEIVING
+        if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_RECEIVING)
+        {
+            if (sRxBuffers[index].mWritePos == aBuffer)
+            {
+                error   = OT_ERROR_NONE;
+                *aIndex = index;
+                return error;
+            }
+            else
+                assert(false);
+        }
+
+        // we are lloking form empty buffer and save index
+        if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_EMPTY &&
+            emptyBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
+        {
+            emptyBufferIndex = index;
+        }
+    }
+
+    // empty buffer found. It is allocated.
+    if (emptyBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
+    {
+        sRxBuffers[emptyBufferIndex].mWritePos            = (uint8_t *)aBuffer;
+        sRxBuffers[emptyBufferIndex].mReadPos             = (uint8_t *)aBuffer;
+        sRxBuffers[emptyBufferIndex].mBuffPtr             = (uint8_t *)aBuffer;
+        sRxBuffers[emptyBufferIndex].mBufferReceiverState = BUFFER_STATUS_RECEIVING;
+        sRxBuffers[emptyBufferIndex].mBufferProcessing    = false;
+        error                                             = OT_ERROR_NONE;
+        *aIndex                                           = emptyBufferIndex;
+    }
+
+    return error;
+}
+
+static otError findProcessingBufferIndex(uint32_t *aIndex, uint32_t *rxBytesLength)
+{
+    otError  error = OT_ERROR_NOT_FOUND;
+    uint32_t index;
+
+    // if the buffer index is equal NRF_LIBUARTE_RX_BUFFER_NUM it is considered as invalid.
+    uint32_t processingBufferIndex = NRF_LIBUARTE_RX_BUFFER_NUM;
+    uint32_t filledBufferIndex     = NRF_LIBUARTE_RX_BUFFER_NUM;
+    uint32_t fillingBufferIndex    = NRF_LIBUARTE_RX_BUFFER_NUM;
+
+    for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
+    {
+        if (sRxBuffers[index].mBufferProcessing == true)
+        {
+            if (processingBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
+            {
+                processingBufferIndex = index;
+            }
+            else
+            {
+                // there can be only one buffer avilable for processing
+                assert(false);
+            }
+        }
+        else if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_FILLED)
+        {
+            if (filledBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
+            {
+                filledBufferIndex = index;
+            }
+            else
+            {
+                // only one buffer can be completely filled.
+                assert(false);
+            }
+        }
+        else if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_RECEIVING)
+        {
+            if (fillingBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
+            {
+                fillingBufferIndex = index;
+            }
+            else
+            {
+                // only one buffer can be filled at a time.
+                assert(false);
+            }
+        }
+    }
+
+    if (processingBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
+    {
+        *rxBytesLength = sRxBuffers[processingBufferIndex].mWritePos - sRxBuffers[processingBufferIndex].mReadPos;
+        if (*rxBytesLength != 0)
         {
             error   = OT_ERROR_NONE;
-            *aIndex = index;
-            break;
+            *aIndex = processingBufferIndex;
+        }
+    }
+    else if (filledBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
+    {
+        *rxBytesLength = sRxBuffers[filledBufferIndex].mWritePos - sRxBuffers[filledBufferIndex].mReadPos;
+        if (*rxBytesLength != 0)
+        {
+            error                                           = OT_ERROR_NONE;
+            *aIndex                                         = filledBufferIndex;
+            sRxBuffers[filledBufferIndex].mBufferProcessing = true;
+        }
+    }
+    else if (fillingBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
+    {
+        *rxBytesLength = sRxBuffers[fillingBufferIndex].mWritePos - sRxBuffers[fillingBufferIndex].mReadPos;
+        if (*rxBytesLength != 0)
+        {
+            error                                            = OT_ERROR_NONE;
+            *aIndex                                          = fillingBufferIndex;
+            sRxBuffers[fillingBufferIndex].mBufferProcessing = true;
         }
     }
 
@@ -119,33 +257,40 @@ static otError findRxBufferIndex(uint32_t *aIndex, const uint8_t *aBuffer)
 static void processReceive(void)
 {
     uint32_t index;
-    int16_t  length;
+    uint32_t length;
     uint8_t *readPos = NULL;
+    otError  error   = OT_ERROR_NONE;
 
-    do
+    CRITICAL_REGION_ENTER();
+    error = findProcessingBufferIndex(&index, &length);
+    CRITICAL_REGION_EXIT();
+
+    if (error == OT_ERROR_NOT_FOUND)
     {
-        sRxEventPending = false;
+        return;
+    }
 
-        for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
+    if (length > 0)
+    {
+        readPos = (uint8_t *)sRxBuffers[index].mReadPos;
+        otPlatUartReceived(readPos, length);
+
+        // Increment read pointer first and free the memory for the next reception.
+        nrf_libuarte_async_rx_free(&sLibUarte, readPos, length);
+        sRxBuffers[index].mReadPos += length;
+
+        // if the buffer is processed completely it will be released
+        if (sRxBuffers[index].mReadPos == sRxBuffers[index].mBuffPtr + NRF_LIBUARTE_RX_BUFFER_SIZE)
         {
-            CRITICAL_REGION_ENTER();
-            length = sRxBuffers[index].mWritePos - sRxBuffers[index].mReadPos;
-            CRITICAL_REGION_EXIT();
-
-            // The difference should never be negative.
-            assert(length >= 0);
-
-            if (length > 0)
-            {
-                readPos = (uint8_t *)sRxBuffers[index].mReadPos;
-                otPlatUartReceived(readPos, length);
-
-                // Increment read pointer first and free the memory for the next reception.
-                sRxBuffers[index].mReadPos += length;
-                nrf_libuarte_async_rx_free(&sLibUarte, readPos, length);
-            }
+            sRxBuffers[index].mWritePos            = 0;
+            sRxBuffers[index].mReadPos             = 0;
+            sRxBuffers[index].mBuffPtr             = 0;
+            sRxBuffers[index].mBufferReceiverState = BUFFER_STATUS_EMPTY;
+            sRxBuffers[index].mBufferProcessing    = false;
         }
-    } while (sRxEventPending);
+    }
+    else
+        assert(false);
 }
 
 /**
@@ -186,22 +331,26 @@ static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
     switch (aEvt->type)
     {
     case NRF_LIBUARTE_ASYNC_EVT_ERROR:
+        assert(false);
         break;
 
     case NRF_LIBUARTE_ASYNC_EVT_RX_DATA:
-        sRxEventPending = true;
 
-        error = findRxBufferIndex(&index, aEvt->data.rxtx.p_data);
+        error = findReceiveBufferIndex(&index, aEvt->data.rxtx.p_data);
         if (error == OT_ERROR_NOT_FOUND)
         {
-            error = findRxBufferIndex(&index, NULL);
-            assert(error == OT_ERROR_NONE);
-
-            sRxBuffers[index].mWritePos = aEvt->data.rxtx.p_data;
-            sRxBuffers[index].mReadPos  = aEvt->data.rxtx.p_data;
+            assert(false);
         }
 
         sRxBuffers[index].mWritePos += aEvt->data.rxtx.length;
+        if (sRxBuffers[index].mWritePos == (sRxBuffers[index].mBuffPtr + NRF_LIBUARTE_RX_BUFFER_SIZE))
+        {
+            // buffer completely filled by receiver.
+            // the remaining data in the buffer must be processed by the aaplication.
+
+            sRxBuffers[index].mBufferReceiverState = BUFFER_STATUS_FILLED;
+        }
+
         break;
 
     case NRF_LIBUARTE_ASYNC_EVT_TX_DONE:
@@ -213,8 +362,29 @@ static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
     }
 }
 
+void TestGpio(void)
+{
+    uint32_t value;
+
+    value = nrf_gpio_pin_read(TEST_GPIO);
+
+    if (prev_state != value)
+    {
+        if (value == 0)
+        {
+            app_util_critical_region_enter(&__CR_SECTION_NESTED);
+        }
+        else
+        {
+            app_util_critical_region_exit(__CR_SECTION_NESTED);
+        }
+    }
+    prev_state = value;
+}
+
 void nrf5UartProcess(void)
 {
+    TestGpio();
     processReceive();
     processTransmit();
 }
@@ -235,6 +405,11 @@ void nrf5UartDeinit(void)
     {
         otPlatUartDisable();
     }
+}
+
+void InitTestGpio(void)
+{
+    nrf_gpio_cfg_input(TEST_GPIO, NRF_GPIO_PIN_PULLUP);
 }
 
 otError otPlatUartEnable(void)
@@ -259,13 +434,15 @@ otError otPlatUartEnable(void)
 
     otEXPECT_ACTION(sUartEnabled == false, error = OT_ERROR_ALREADY);
 
+    InitRxData();
+
     ret = nrf_libuarte_async_init(&sLibUarte, &config, uarteEventHandler, NULL);
     assert(ret == NRF_SUCCESS);
 
     nrf_libuarte_async_enable(&sLibUarte);
 
     sUartEnabled = true;
-
+    InitTestGpio();
 exit:
     return error;
 }
@@ -281,7 +458,6 @@ otError otPlatUartDisable(void)
     sUartEnabled     = false;
     sTransmitStarted = false;
     sTransmitDone    = false;
-    sRxEventPending  = false;
     memset(&sRxBuffers, 0, sizeof(sRxBuffers));
 
 exit:
@@ -295,11 +471,11 @@ otError otPlatUartSend(const uint8_t *aBuf, uint16_t aBufLength)
 
     otEXPECT_ACTION(sTransmitStarted == false, error = OT_ERROR_BUSY);
 
-    ret = nrf_libuarte_async_tx(&sLibUarte, (uint8_t *)aBuf, aBufLength);
-    otEXPECT_ACTION(ret == NRF_SUCCESS, error = OT_ERROR_BUSY);
-
     sTransmitStarted = true;
     sTransmitDone    = false;
+
+    ret = nrf_libuarte_async_tx(&sLibUarte, (uint8_t *)aBuf, aBufLength);
+    otEXPECT_ACTION(ret == NRF_SUCCESS, error = OT_ERROR_BUSY);
 
 exit:
     assert(error == OT_ERROR_NONE);
