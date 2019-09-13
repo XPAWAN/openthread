@@ -579,6 +579,13 @@
 #define NRF_LIBUARTE_RX_BUFFER_SIZE 128
 #endif
 
+// <q> NRF_LIBUARTE_RX_QUEUE_SIZE  - Size of libUARTE receiver queue
+ 
+ 
+#ifndef NRF_LIBUARTE_RX_QUEUE_SIZE
+#define NRF_LIBUARTE_RX_QUEUE_SIZE 16
+#endif
+
 // <q> NRF_LIBUARTE_UART_INTERFACE_NUM  - The UART interface to use for libUARTE library.
  
  
