@@ -46,13 +46,20 @@
 #include "openthread-system.h"
 
 #include "nrf_libuarte_async.h"
+#include "nrf_queue.h"
 #include "platform-nrf5.h"
 #include <hal/nrf_gpio.h>
 #include <hal/nrf_uarte.h>
 
 #if (UARTE_AS_SERIAL_TRANSPORT == 1)
 
-bool sUartEnabled = false;
+typedef struct
+{
+    uint8_t *p_data;
+    uint32_t length;
+} buffer_t;
+
+NRF_QUEUE_DEF(buffer_t, sBuffQueue, NRF_LIBUARTE_RX_QUEUE_SIZE, NRF_QUEUE_MODE_NO_OVERFLOW);
 
 NRF_LIBUARTE_ASYNC_DEFINE(sLibUarte,
                           NRF_LIBUARTE_UART_INTERFACE_NUM,
@@ -63,234 +70,37 @@ NRF_LIBUARTE_ASYNC_DEFINE(sLibUarte,
                           NRF_LIBUARTE_RX_BUFFER_NUM);
 
 /**
- * @brief UARTE TX variables.
+ * @brief UARTE variables.
  */
 static bool sTransmitStarted = false;
 static bool sTransmitDone    = false;
-
-typedef enum
-{
-    BUFFER_STATUS_EMPTY = 0,
-    BUFFER_STATUS_RECEIVING,
-    BUFFER_STATUS_FILLED
-} bufferReceiverState;
-
-/**
- * @brief UARTE RX buffer variables.
- */
-typedef struct
-{
-    bufferReceiverState mBufferReceiverState;
-    bool                mBufferProcessing;
-    uint8_t *           mBuffPtr;
-    volatile uint8_t *  mReadPos;
-    volatile uint8_t *  mWritePos;
-
-} UarteRxBuffer;
-
-static UarteRxBuffer sRxBuffers[NRF_LIBUARTE_RX_BUFFER_NUM];
+static bool sUartEnabled     = false;
 
 #define TEST_GPIO 25
 uint32_t prev_state          = 1;
 uint8_t  __CR_SECTION_NESTED = 0;
-
-static void InitRxData(void)
-{
-    uint32_t index;
-
-    for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
-    {
-        sRxBuffers[index].mWritePos            = 0;
-        sRxBuffers[index].mReadPos             = 0;
-        sRxBuffers[index].mBuffPtr             = 0;
-        sRxBuffers[index].mBufferReceiverState = BUFFER_STATUS_EMPTY;
-        sRxBuffers[index].mBufferProcessing    = false;
-    }
-}
-
-/**
- * @brief Find the RX buffer index.
- *
- * This function looks for the RX Buffer with the requested write pointer.
- *
- * @note If @p aBuffer is equal to NULL, the function returns free RX buffer index
- *       i.e. either where write pointer is set to NULL or equal to receive pointer.
- *
- * @param[out] aIndex   Pointer to the index of RX buffer.
- * @param[in]  aBuffer  The RX Buffer address. NULL in case the free buffer is requested.
- *
- * @retval  OT_ERROR_NONE       RX buffer has been found.
- * @retval  OT_ERROR_NOT_FOUND  RX buffer has not been found.
- */
-static otError findReceiveBufferIndex(uint32_t *aIndex, const uint8_t *aBuffer)
-{
-    otError  error = OT_ERROR_NOT_FOUND;
-    uint32_t index;
-
-    // if the buffer index is equal NRF_LIBUARTE_RX_BUFFER_NUM it is considered as invalid.
-    uint32_t emptyBufferIndex = NRF_LIBUARTE_RX_BUFFER_NUM;
-
-    for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
-    {
-        // there should be only one buffer in BUFFER_STATUS_RECEIVING
-        if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_RECEIVING)
-        {
-            if (sRxBuffers[index].mWritePos == aBuffer)
-            {
-                error   = OT_ERROR_NONE;
-                *aIndex = index;
-                return error;
-            }
-            else
-                assert(false);
-        }
-
-        // we are lloking form empty buffer and save index
-        if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_EMPTY &&
-            emptyBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
-        {
-            emptyBufferIndex = index;
-        }
-    }
-
-    // empty buffer found. It is allocated.
-    if (emptyBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
-    {
-        sRxBuffers[emptyBufferIndex].mWritePos            = (uint8_t *)aBuffer;
-        sRxBuffers[emptyBufferIndex].mReadPos             = (uint8_t *)aBuffer;
-        sRxBuffers[emptyBufferIndex].mBuffPtr             = (uint8_t *)aBuffer;
-        sRxBuffers[emptyBufferIndex].mBufferReceiverState = BUFFER_STATUS_RECEIVING;
-        sRxBuffers[emptyBufferIndex].mBufferProcessing    = false;
-        error                                             = OT_ERROR_NONE;
-        *aIndex                                           = emptyBufferIndex;
-    }
-
-    return error;
-}
-
-static otError findProcessingBufferIndex(uint32_t *aIndex, uint32_t *rxBytesLength)
-{
-    otError  error = OT_ERROR_NOT_FOUND;
-    uint32_t index;
-
-    // if the buffer index is equal NRF_LIBUARTE_RX_BUFFER_NUM it is considered as invalid.
-    uint32_t processingBufferIndex = NRF_LIBUARTE_RX_BUFFER_NUM;
-    uint32_t filledBufferIndex     = NRF_LIBUARTE_RX_BUFFER_NUM;
-    uint32_t fillingBufferIndex    = NRF_LIBUARTE_RX_BUFFER_NUM;
-
-    for (index = 0; index < NRF_LIBUARTE_RX_BUFFER_NUM; index++)
-    {
-        if (sRxBuffers[index].mBufferProcessing == true)
-        {
-            if (processingBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
-            {
-                processingBufferIndex = index;
-            }
-            else
-            {
-                // there can be only one buffer avilable for processing
-                assert(false);
-            }
-        }
-        else if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_FILLED)
-        {
-            if (filledBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
-            {
-                filledBufferIndex = index;
-            }
-            else
-            {
-                // only one buffer can be completely filled.
-                assert(false);
-            }
-        }
-        else if (sRxBuffers[index].mBufferReceiverState == BUFFER_STATUS_RECEIVING)
-        {
-            if (fillingBufferIndex == NRF_LIBUARTE_RX_BUFFER_NUM)
-            {
-                fillingBufferIndex = index;
-            }
-            else
-            {
-                // only one buffer can be filled at a time.
-                assert(false);
-            }
-        }
-    }
-
-    if (processingBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
-    {
-        *rxBytesLength = sRxBuffers[processingBufferIndex].mWritePos - sRxBuffers[processingBufferIndex].mReadPos;
-        if (*rxBytesLength != 0)
-        {
-            error   = OT_ERROR_NONE;
-            *aIndex = processingBufferIndex;
-        }
-    }
-    else if (filledBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
-    {
-        *rxBytesLength = sRxBuffers[filledBufferIndex].mWritePos - sRxBuffers[filledBufferIndex].mReadPos;
-        if (*rxBytesLength != 0)
-        {
-            error                                           = OT_ERROR_NONE;
-            *aIndex                                         = filledBufferIndex;
-            sRxBuffers[filledBufferIndex].mBufferProcessing = true;
-        }
-    }
-    else if (fillingBufferIndex != NRF_LIBUARTE_RX_BUFFER_NUM)
-    {
-        *rxBytesLength = sRxBuffers[fillingBufferIndex].mWritePos - sRxBuffers[fillingBufferIndex].mReadPos;
-        if (*rxBytesLength != 0)
-        {
-            error                                            = OT_ERROR_NONE;
-            *aIndex                                          = fillingBufferIndex;
-            sRxBuffers[fillingBufferIndex].mBufferProcessing = true;
-        }
-    }
-
-    return error;
-}
 
 /**
  * @brief Notify application about new bytes received.
  */
 static void processReceive(void)
 {
-    uint32_t index;
-    uint32_t length;
-    uint8_t *readPos = NULL;
-    otError  error   = OT_ERROR_NONE;
+    buffer_t buf;
+    bool     rxEventPending = true;
 
-    CRITICAL_REGION_ENTER();
-    error = findProcessingBufferIndex(&index, &length);
-    CRITICAL_REGION_EXIT();
-
-    if (error == OT_ERROR_NOT_FOUND)
+    do
     {
-        return;
-    }
-
-    if (length > 0)
-    {
-        readPos = (uint8_t *)sRxBuffers[index].mReadPos;
-        otPlatUartReceived(readPos, length);
-
-        // Increment read pointer first and free the memory for the next reception.
-        nrf_libuarte_async_rx_free(&sLibUarte, readPos, length);
-        sRxBuffers[index].mReadPos += length;
-
-        // if the buffer is processed completely it will be released
-        if (sRxBuffers[index].mReadPos == sRxBuffers[index].mBuffPtr + NRF_LIBUARTE_RX_BUFFER_SIZE)
+        if (!nrf_queue_is_empty(&sBuffQueue))
         {
-            sRxBuffers[index].mWritePos            = 0;
-            sRxBuffers[index].mReadPos             = 0;
-            sRxBuffers[index].mBuffPtr             = 0;
-            sRxBuffers[index].mBufferReceiverState = BUFFER_STATUS_EMPTY;
-            sRxBuffers[index].mBufferProcessing    = false;
+            nrf_queue_pop(&sBuffQueue, &buf);
+            otPlatUartReceived(buf.p_data, buf.length);
+            nrf_libuarte_async_rx_free(&sLibUarte, buf.p_data, buf.length);
         }
-    }
-    else
-        assert(false);
+        else
+        {
+            rxEventPending = false;
+        }
+    } while (rxEventPending);
 }
 
 /**
@@ -324,9 +134,7 @@ exit:
 static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
 {
     OT_UNUSED_VARIABLE(aContext);
-
-    uint32_t index = 0;
-    otError  error = OT_ERROR_NONE;
+    buffer_t buf;
 
     switch (aEvt->type)
     {
@@ -336,20 +144,9 @@ static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
 
     case NRF_LIBUARTE_ASYNC_EVT_RX_DATA:
 
-        error = findReceiveBufferIndex(&index, aEvt->data.rxtx.p_data);
-        if (error == OT_ERROR_NOT_FOUND)
-        {
-            assert(false);
-        }
+        buf.p_data = aEvt->data.rxtx.p_data, buf.length = aEvt->data.rxtx.length,
 
-        sRxBuffers[index].mWritePos += aEvt->data.rxtx.length;
-        if (sRxBuffers[index].mWritePos == (sRxBuffers[index].mBuffPtr + NRF_LIBUARTE_RX_BUFFER_SIZE))
-        {
-            // buffer completely filled by receiver.
-            // the remaining data in the buffer must be processed by the aaplication.
-
-            sRxBuffers[index].mBufferReceiverState = BUFFER_STATUS_FILLED;
-        }
+        nrf_queue_push(&sBuffQueue, &buf);
 
         break;
 
@@ -434,8 +231,6 @@ otError otPlatUartEnable(void)
 
     otEXPECT_ACTION(sUartEnabled == false, error = OT_ERROR_ALREADY);
 
-    InitRxData();
-
     ret = nrf_libuarte_async_init(&sLibUarte, &config, uarteEventHandler, NULL);
     assert(ret == NRF_SUCCESS);
 
@@ -458,7 +253,6 @@ otError otPlatUartDisable(void)
     sUartEnabled     = false;
     sTransmitStarted = false;
     sTransmitDone    = false;
-    memset(&sRxBuffers, 0, sizeof(sRxBuffers));
 
 exit:
     return error;
