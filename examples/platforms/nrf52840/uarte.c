@@ -85,22 +85,23 @@ uint8_t  __CR_SECTION_NESTED = 0;
  */
 static void processReceive(void)
 {
-    buffer_t buf;
-    bool     rxEventPending = true;
+    buffer_t   buf;
+    ret_code_t err;
+
+    otEXPECT(!nrf_queue_is_empty(&sBuffQueue));
 
     do
     {
-        if (!nrf_queue_is_empty(&sBuffQueue))
-        {
-            nrf_queue_pop(&sBuffQueue, &buf);
-            otPlatUartReceived(buf.p_data, buf.length);
-            nrf_libuarte_async_rx_free(&sLibUarte, buf.p_data, buf.length);
-        }
-        else
-        {
-            rxEventPending = false;
-        }
-    } while (rxEventPending);
+        err = nrf_queue_pop(&sBuffQueue, &buf);
+        if (err != NRF_SUCCESS)
+            assert(false);
+
+        otPlatUartReceived(buf.p_data, buf.length);
+        nrf_libuarte_async_rx_free(&sLibUarte, buf.p_data, buf.length);
+    } while (!nrf_queue_is_empty(&sBuffQueue));
+
+exit:
+    return;
 }
 
 /**
@@ -134,7 +135,8 @@ exit:
 static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
 {
     OT_UNUSED_VARIABLE(aContext);
-    buffer_t buf;
+    buffer_t   buf;
+    ret_code_t err;
 
     switch (aEvt->type)
     {
@@ -144,9 +146,12 @@ static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
 
     case NRF_LIBUARTE_ASYNC_EVT_RX_DATA:
 
-        buf.p_data = aEvt->data.rxtx.p_data, buf.length = aEvt->data.rxtx.length,
+        buf.p_data = aEvt->data.rxtx.p_data;
+        buf.length = aEvt->data.rxtx.length;
 
-        nrf_queue_push(&sBuffQueue, &buf);
+        err = nrf_queue_push(&sBuffQueue, &buf);
+        if (err != NRF_SUCCESS)
+            assert(false);
 
         break;
 
