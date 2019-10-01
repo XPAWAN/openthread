@@ -76,9 +76,7 @@ static bool sTransmitStarted = false;
 static bool sTransmitDone    = false;
 static bool sUartEnabled     = false;
 
-#define TEST_GPIO 25
-uint32_t prev_state          = 1;
-uint8_t  __CR_SECTION_NESTED = 0;
+static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt);
 
 /**
  * @brief Notify application about new bytes received.
@@ -140,8 +138,16 @@ static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
 
     switch (aEvt->type)
     {
-    case NRF_LIBUARTE_ASYNC_EVT_ERROR:
+    case NRF_LIBUARTE_ASYNC_EVT_OVERRUN_ERROR:
+        // The secondary buffer is overrunned.
+        // Some data may be lost.
         assert(false);
+        break;
+
+    case NRF_LIBUARTE_ASYNC_EVT_ERROR:
+        // UARTE hardware related error i.e. remote host reset, RX line in low state.
+        otPlatUartDisable();
+        otPlatUartEnable();
         break;
 
     case NRF_LIBUARTE_ASYNC_EVT_RX_DATA:
@@ -164,29 +170,8 @@ static void uarteEventHandler(void *aContext, nrf_libuarte_async_evt_t *aEvt)
     }
 }
 
-void TestGpio(void)
-{
-    uint32_t value;
-
-    value = nrf_gpio_pin_read(TEST_GPIO);
-
-    if (prev_state != value)
-    {
-        if (value == 0)
-        {
-            app_util_critical_region_enter(&__CR_SECTION_NESTED);
-        }
-        else
-        {
-            app_util_critical_region_exit(__CR_SECTION_NESTED);
-        }
-    }
-    prev_state = value;
-}
-
 void nrf5UartProcess(void)
 {
-    TestGpio();
     processReceive();
     processTransmit();
 }
@@ -209,16 +194,12 @@ void nrf5UartDeinit(void)
     }
 }
 
-void InitTestGpio(void)
-{
-    nrf_gpio_cfg_input(TEST_GPIO, NRF_GPIO_PIN_PULLUP);
-}
-
 otError otPlatUartEnable(void)
 {
-    otError                     error = OT_ERROR_NONE;
-    ret_code_t                  ret;
-    nrf_libuarte_async_config_t config = {
+    otError    error = OT_ERROR_NONE;
+    ret_code_t ret;
+
+    static nrf_libuarte_async_config_t libuarte_config = {
         .tx_pin   = UART_PIN_TX,
         .rx_pin   = UART_PIN_RX,
         .cts_pin  = UART_PIN_CTS,
@@ -236,13 +217,12 @@ otError otPlatUartEnable(void)
 
     otEXPECT_ACTION(sUartEnabled == false, error = OT_ERROR_ALREADY);
 
-    ret = nrf_libuarte_async_init(&sLibUarte, &config, uarteEventHandler, NULL);
+    ret = nrf_libuarte_async_init(&sLibUarte, &libuarte_config, uarteEventHandler, NULL);
     assert(ret == NRF_SUCCESS);
 
     nrf_libuarte_async_enable(&sLibUarte);
 
     sUartEnabled = true;
-    InitTestGpio();
 exit:
     return error;
 }

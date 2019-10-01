@@ -179,9 +179,11 @@ static void uart_evt_handler(void * context, nrf_libuarte_drv_evt_t * p_evt)
         NRF_LOG_DEBUG("(evt) TX completed (%d)", p_evt->data.rxtx.length);
         nrf_libuarte_async_evt_t evt = {
             .type = NRF_LIBUARTE_ASYNC_EVT_TX_DONE,
-            .data.rxtx = {
-                .p_data = p_evt->data.rxtx.p_data,
-                .length = p_evt->data.rxtx.length,
+            .data = {
+                .rxtx = {
+                    .p_data = p_evt->data.rxtx.p_data,
+                    .length = p_evt->data.rxtx.length,
+                }
             }
         };
         p_libuarte->p_ctrl_blk->evt_handler(p_libuarte->p_ctrl_blk->context, &evt);
@@ -218,9 +220,11 @@ static void uart_evt_handler(void * context, nrf_libuarte_drv_evt_t * p_evt)
             p_libuarte->p_ctrl_blk->rx_count += rx_amount;
             nrf_libuarte_async_evt_t evt = {
                 .type = NRF_LIBUARTE_ASYNC_EVT_RX_DATA,
-                .data.rxtx = {
-                    .p_data = &p_evt->data.rxtx.p_data[p_libuarte->p_ctrl_blk->sub_rx_count],
-                    .length = rx_amount,
+                .data = {
+                    .rxtx = {
+                        .p_data = &p_evt->data.rxtx.p_data[p_libuarte->p_ctrl_blk->sub_rx_count],
+                        .length = rx_amount,
+                    }
                 }
             };
             NRF_LOG_DEBUG("(evt) RX: %d (addr:0x%08X, internal index: %d)",
@@ -260,6 +264,20 @@ static void uart_evt_handler(void * context, nrf_libuarte_drv_evt_t * p_evt)
         p_libuarte->p_ctrl_blk->evt_handler(p_libuarte->p_ctrl_blk->context, &evt);
         break;
     }
+    case NRF_LIBUARTE_DRV_EVT_OVERRUN_ERROR:
+    {
+        NRF_LOG_WARNING("Overrun error - data loss due to UARTE interrupt not handled on time.");
+        uint32_t rx_amount = p_evt->data.overrun_err.overrun_length - p_libuarte->p_ctrl_blk->sub_rx_count;
+        p_libuarte->p_ctrl_blk->rx_count += rx_amount;
+        nrf_libuarte_async_evt_t evt = {
+            .type = NRF_LIBUARTE_ASYNC_EVT_OVERRUN_ERROR,
+            .data = {
+                .overrun_err = { .overrun_length = p_evt->data.overrun_err.overrun_length}
+            }
+        };
+        p_libuarte->p_ctrl_blk->evt_handler(p_libuarte->p_ctrl_blk->context, &evt);
+        break;
+    }
     default:
         APP_ERROR_CHECK_BOOL(false);
         break;
@@ -270,16 +288,18 @@ void nrf_libuarte_async_timeout_handler(const nrf_libuarte_async_t * p_libuarte)
 {
     NRFX_IRQ_DISABLE((IRQn_Type)NRFX_IRQ_NUMBER_GET(p_libuarte->p_libuarte->uarte));
 
-    uint32_t capt_rx_count = p_libuarte->p_libuarte->timer.p_reg->CC[2];
+    uint32_t capt_rx_count = p_libuarte->p_libuarte->timer.p_reg->CC[3];
 
     if (capt_rx_count > p_libuarte->p_ctrl_blk->rx_count)
     {
         uint32_t rx_amount = capt_rx_count - p_libuarte->p_ctrl_blk->rx_count;
         nrf_libuarte_async_evt_t evt = {
             .type = NRF_LIBUARTE_ASYNC_EVT_RX_DATA,
-            .data.rxtx = {
-                .p_data = &p_libuarte->p_ctrl_blk->p_curr_rx_buf[p_libuarte->p_ctrl_blk->sub_rx_count],
-                .length = rx_amount,
+            .data = {
+                .rxtx = {
+                    .p_data = &p_libuarte->p_ctrl_blk->p_curr_rx_buf[p_libuarte->p_ctrl_blk->sub_rx_count],
+                    .length = rx_amount,
+                }
             }
         };
         NRF_LOG_DEBUG("(tmr evt) RX: %d (addr:0x%08X, internal index: %d)",
@@ -308,8 +328,8 @@ static void app_timer_handler(void * p_context)
     uint32_t ticks = app_timer_us_to_ticks(p_libuarte->p_ctrl_blk->timeout_us)/2;
     ticks = MAX(APP_TIMER_MIN_TIMEOUT_TICKS, ticks);
 
-    nrf_timer_task_trigger( p_libuarte->p_libuarte->timer.p_reg, NRF_TIMER_TASK_CAPTURE2);
-    current_rx_count = p_libuarte->p_libuarte->timer.p_reg->CC[2];
+    nrf_timer_task_trigger( p_libuarte->p_libuarte->timer.p_reg, NRF_TIMER_TASK_CAPTURE3);
+    current_rx_count = p_libuarte->p_libuarte->timer.p_reg->CC[3];
     UNUSED_RETURN_VALUE(local_app_timer_start(*p_libuarte->p_app_timer, ticks, (void *)p_libuarte));
 
     if (p_libuarte->p_app_timer_ctrl_blk->rx_count != current_rx_count) {
@@ -410,11 +430,18 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
     }
     else if (p_libuarte->p_app_timer && NRF_LIBUARTE_ASYNC_WITH_APP_TIMER) {
         /* app_timer in use */
-        ret = local_app_timer_create(p_libuarte->p_app_timer);
-        if (ret != NRF_SUCCESS)
+        if(!p_libuarte->p_ctrl_blk->app_timer_created)
         {
-            return ret;
+            ret = local_app_timer_create(p_libuarte->p_app_timer);
+            if (ret != NRF_SUCCESS)
+            {
+                return ret;
+            }
+            p_libuarte->p_ctrl_blk->app_timer_created = true;
         }
+        p_libuarte->p_app_timer_ctrl_blk->activate = false;
+        p_libuarte->p_app_timer_ctrl_blk->rx_count = 0;
+        p_libuarte->p_app_timer_ctrl_blk->timestamp = 0;
     }
     else
     {
@@ -445,7 +472,7 @@ ret_code_t nrf_libuarte_async_init(const nrf_libuarte_async_t * const p_libuarte
         PPI_CH_SETUP(p_libuarte->p_ctrl_blk->ppi_channels[NRF_LIBUARTE_ASYNC_PPI_CH_COMPARE_SHUTDOWN],
                      tmr_compare_evt,
                      tmr_stop_tsk,
-                     (uint32_t)&p_libuarte->p_libuarte->timer.p_reg->TASKS_CAPTURE[2]);
+                     (uint32_t)&p_libuarte->p_libuarte->timer.p_reg->TASKS_CAPTURE[3]);
         /*lint -restore */
     }
 
@@ -589,4 +616,14 @@ void nrf_libuarte_async_rx_free(const nrf_libuarte_async_t * const p_libuarte, u
         NRF_LOG_INFO("Freeing partial buffer: 0x%08X, length:%d", p_data, length);
     }
 
+}
+
+void nrf_libuarte_async_rts_clear(const nrf_libuarte_async_t * const p_libuarte)
+{
+    nrf_libuarte_drv_rts_clear(p_libuarte->p_libuarte);
+}
+
+void nrf_libuarte_async_rts_set(const nrf_libuarte_async_t * const p_libuarte)
+{
+    nrf_libuarte_drv_rts_set(p_libuarte->p_libuarte);
 }

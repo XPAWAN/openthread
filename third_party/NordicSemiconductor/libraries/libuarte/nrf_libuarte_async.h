@@ -71,9 +71,10 @@
 /** @brief Types of libuarte driver events. */
 typedef enum
 {
-    NRF_LIBUARTE_ASYNC_EVT_RX_DATA, ///< Requested TX transfer completed.
-    NRF_LIBUARTE_ASYNC_EVT_TX_DONE, ///< Requested RX transfer completed.
-    NRF_LIBUARTE_ASYNC_EVT_ERROR    ///< Error reported by UARTE peripheral.
+    NRF_LIBUARTE_ASYNC_EVT_RX_DATA,  ///< Requested TX transfer completed.
+    NRF_LIBUARTE_ASYNC_EVT_TX_DONE,  ///< Requested RX transfer completed.
+    NRF_LIBUARTE_ASYNC_EVT_ERROR,    ///< Error reported by UARTE peripheral.
+    NRF_LIBUARTE_ASYNC_EVT_OVERRUN_ERROR  ///< Error reported by the driver.
 } nrf_libuarte_async_evt_type_t;
 
 typedef enum
@@ -90,14 +91,20 @@ typedef struct
     size_t     length; ///< Number of bytes transfered.
 } nrf_libuarte_async_data_t;
 
+/** @brief Structu for software error event. */
+typedef struct
+{
+    uint32_t overrun_length; ///< Number of bytes lost due to overrun.
+} nrf_libuarte_async_overrun_err_evt_t;
 
 /** @brief Structure for libuarte error event. */
 typedef struct
 {
     nrf_libuarte_async_evt_type_t type; ///< Event type.
     union {
-        nrf_libuarte_async_data_t rxtx;     ///< RXD/TXD data.
-        uint8_t                   errorsrc; ///< Error source.
+        nrf_libuarte_async_data_t rxtx;                   ///< RXD/TXD data.
+        uint8_t                   errorsrc;               ///< Error source.
+        nrf_libuarte_async_overrun_err_evt_t overrun_err; ///< Overrun error data.
     } data;                                 ///< Union with data.
 } nrf_libuarte_async_evt_t;
 
@@ -137,6 +144,7 @@ typedef struct {
     uint8_t * p_curr_rx_buf;
     uint32_t rx_free_cnt;
     uint32_t timeout_us;
+    bool app_timer_created;
 } nrf_libuarte_async_ctrl_blk_t;
 
 typedef struct {
@@ -322,6 +330,24 @@ void nrf_libuarte_async_uninit(const nrf_libuarte_async_t * const p_libuarte);
  * @param p_libuarte  Libuarte_async instance.
  */
 void nrf_libuarte_async_enable(const nrf_libuarte_async_t * const p_libuarte);
+
+/**
+ * @brief Function for deasserting RTS to pause the transmission.
+ *
+ * Flow control must be enabled.
+ *
+ * @param p_libuarte Libuarte_async instance.
+ */
+void nrf_libuarte_async_rts_clear(const nrf_libuarte_async_t * const p_libuarte);
+
+/**
+ * @brief Function for asserting RTS to restart the transmission.
+ *
+ * Flow control must be enabled.
+ *
+ * @param p_libuarte Libuarte_async instance.
+ */
+void nrf_libuarte_async_rts_set(const nrf_libuarte_async_t * const p_libuarte);
 
 /**
  * @brief Function for sending data asynchronously over UARTE.

@@ -56,12 +56,16 @@
  * @{
  */
 
+/* Number of bytes available in the buffer when RTS line is set. */
+#define NRF_LIBUARTE_DRV_HWFC_BYTE_LIMIT 4
+
 typedef enum
 {
     NRF_LIBUARTE_DRV_EVT_RX_DATA,    ///< Data received.
     NRF_LIBUARTE_DRV_EVT_RX_BUF_REQ, ///< Requesting new buffer for receiving data.
     NRF_LIBUARTE_DRV_EVT_TX_DONE,    ///< Requested TX transfer completed.
-    NRF_LIBUARTE_DRV_EVT_ERROR       ///< Error reported by the UARTE peripheral.
+    NRF_LIBUARTE_DRV_EVT_ERROR,      ///< Error reported by the UARTE peripheral.
+    NRF_LIBUARTE_DRV_EVT_OVERRUN_ERROR    ///< Error reported by the driver.
 } nrf_libuarte_drv_evt_type_t;
 
 /**
@@ -75,11 +79,12 @@ typedef enum
     NRF_LIBUARTE_DRV_PPI_CH_EXT_STOP_GROUPS_EN,
     NRF_LIBUARTE_DRV_PPI_CH_RXRDY_TIMER_COUNT,
 
-    NRF_LIBUARTE_DRV_PPI_CH_RX_MAX,
-    NRF_LIBUARTE_DRV_PPI_CH_ENDRX_STARTRX = NRF_LIBUARTE_DRV_PPI_CH_RX_MAX,
+    NRF_LIBUARTE_DRV_PPI_CH_ENDRX_STARTRX,
     NRF_LIBUARTE_DRV_PPI_CH_ENDRX_EXT_TSK,
 
-    NRF_LIBUARTE_DRV_PPI_CH_RX_GROUP_MAX,
+    NRF_LIBUARTE_DRV_PPI_CH_RTS_PIN,
+    NRF_LIBUARTE_DRV_PPI_CH_RX_MAX,
+    NRF_LIBUARTE_DRV_PPI_CH_RX_GROUP_MAX = NRF_LIBUARTE_DRV_PPI_CH_RX_MAX,
 
     NRF_LIBUARTE_DRV_PPI_CH_ENDTX_STARTTX = NRF_LIBUARTE_DRV_PPI_CH_RX_GROUP_MAX,
 
@@ -104,10 +109,16 @@ typedef struct
 
 typedef struct
 {
+    uint32_t overrun_length;
+} nrf_libuarte_drv_overrun_err_evt_t;
+
+typedef struct
+{
     nrf_libuarte_drv_evt_type_t type; ///< Event type.
     union {
         nrf_libuarte_drv_data_t rxtx;     ///< Data provided for transfer completion events.
         uint8_t                 errorsrc; ///< Error source flags.
+        nrf_libuarte_drv_overrun_err_evt_t overrun_err; ///< SW Error structure.
     } data;
 } nrf_libuarte_drv_evt_t;
 
@@ -149,7 +160,8 @@ typedef struct {
     uint32_t chunk_size;
     void * context;
     uint16_t tx_chunk8;
-
+    uint8_t rts_pin;
+    bool rts_manual;
 } nrf_libuarte_drv_ctrl_blk_t;
 
 typedef struct {
@@ -241,6 +253,25 @@ void nrf_libuarte_drv_rx_buf_rsp(const nrf_libuarte_drv_t * const p_libuarte,
  * @param p_libuarte       Pointer to libuarte instance.
  */
 void nrf_libuarte_drv_rx_stop(const nrf_libuarte_drv_t * const p_libuarte);
+
+/**
+ * @brief Function for deasserting RTS to pause the transmission.
+ *
+ * Flow control must be enabled.
+ *
+ * @param p_libuarte Pointer to libuarte instance.
+ */
+void nrf_libuarte_drv_rts_clear(const nrf_libuarte_drv_t * const p_libuarte);
+
+/**
+ * @brief Function for asserting RTS to restart the transmission.
+ *
+ * Flow control must be enabled.
+ *
+ * @param p_libuarte Pointer to libuarte instance.
+ */
+void nrf_libuarte_drv_rts_set(const nrf_libuarte_drv_t * const p_libuarte);
+
 
 /** @} */
 

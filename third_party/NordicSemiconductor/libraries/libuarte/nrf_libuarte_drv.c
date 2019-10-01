@@ -41,6 +41,7 @@
 #include "nrf_libuarte_drv.h"
 #include "nrf_uarte.h"
 #include "nrf_gpio.h"
+#include <nrfx_gpiote.h>
 #include <../src/prs/nrfx_prs.h>
 
 #define NRF_LOG_MODULE_NAME libUARTE
@@ -75,6 +76,13 @@ void libuarte_0_irq_handler(void);
 void libuarte_1_irq_handler(void);
 #endif
 
+#if defined(NRF_LIBUARTE_DRV_HWFC_ENABLED)
+#define LIBUARTE_DRV_WITH_HWFC NRF_LIBUARTE_DRV_HWFC_ENABLED
+#else
+#define LIBUARTE_DRV_WITH_HWFC 1
+#endif
+
+#define RTS_PIN_DISABLED 0xff
 
 /** @brief Macro executes given function on every allocated channel in the list between provided
  * indexes.
@@ -367,6 +375,18 @@ static ret_code_t ppi_configure(const nrf_libuarte_drv_t * const p_libuarte,
 
     }
 
+    if (LIBUARTE_DRV_WITH_HWFC && (p_config->rts_pin != NRF_UARTE_PSEL_DISCONNECTED))
+    {
+        ret = ppi_channel_configure(&p_libuarte->ctrl_blk->ppi_channels[NRF_LIBUARTE_DRV_PPI_CH_RTS_PIN],
+                nrfx_timer_compare_event_address_get(&p_libuarte->timer, 2),
+                nrfx_gpiote_set_task_addr_get(p_config->rts_pin),
+                0);
+        if (ret != NRF_SUCCESS)
+        {
+            goto complete_config;
+        }
+    }
+
 complete_config:
     if (ret == NRF_SUCCESS)
     {
@@ -410,18 +430,41 @@ ret_code_t nrf_libuarte_drv_init(const nrf_libuarte_drv_t * const p_libuarte,
     nrf_uarte_configure(p_libuarte->uarte, p_config->parity, p_config->hwfc);
     nrf_uarte_txrx_pins_set(p_libuarte->uarte, p_config->tx_pin, p_config->rx_pin);
 
-    if (p_config->hwfc == NRF_UARTE_HWFC_ENABLED)
+    if (LIBUARTE_DRV_WITH_HWFC && (p_config->hwfc == NRF_UARTE_HWFC_ENABLED))
     {
         if (p_config->cts_pin != NRF_UARTE_PSEL_DISCONNECTED)
         {
-            nrf_gpio_cfg_input(p_config->cts_pin, NRF_GPIO_PIN_NOPULL);
+            nrf_gpio_cfg_input(p_config->cts_pin, NRF_GPIO_PIN_PULLUP);
         }
         if (p_config->rts_pin != NRF_UARTE_PSEL_DISCONNECTED)
         {
-            nrf_gpio_pin_set(p_config->rts_pin);
+            nrfx_gpiote_out_config_t out_config = NRFX_GPIOTE_CONFIG_OUT_TASK_TOGGLE(true);
+
+            nrfx_err_t err = nrfx_gpiote_init();
+            if ((err != NRFX_SUCCESS) && (err != NRFX_ERROR_INVALID_STATE))
+            {
+                return err;
+            }
+
+            err = nrfx_gpiote_out_init(p_config->rts_pin, &out_config);
+            if (err != NRFX_SUCCESS)
+            {
+                return NRF_ERROR_INTERNAL;
+            }
+            nrfx_gpiote_out_task_enable(p_config->rts_pin);
             nrf_gpio_cfg_output(p_config->rts_pin);
+            p_libuarte->ctrl_blk->rts_pin = p_config->rts_pin;
         }
-        nrf_uarte_hwfc_pins_set(p_libuarte->uarte, p_config->rts_pin, p_config->cts_pin);
+        else
+        {
+            p_libuarte->ctrl_blk->rts_pin = RTS_PIN_DISABLED;
+        }
+
+        nrf_uarte_hwfc_pins_set(p_libuarte->uarte, NRF_UARTE_PSEL_DISCONNECTED, p_config->cts_pin);
+    }
+    else if ((p_config->hwfc == NRF_UARTE_HWFC_ENABLED) && !LIBUARTE_DRV_WITH_HWFC)
+    {
+        return NRFX_ERROR_INVALID_PARAM;
     }
 
 #if NRFX_CHECK(NRFX_PRS_ENABLED) && NRFX_CHECK(NRF_LIBUARTE_DRV_UARTE0)
@@ -450,10 +493,6 @@ ret_code_t nrf_libuarte_drv_init(const nrf_libuarte_drv_t * const p_libuarte,
     {
         return NRF_ERROR_INTERNAL;
     }
-    nrfx_timer_enable(&p_libuarte->timer);
-    nrfx_timer_clear(&p_libuarte->timer);
-    p_libuarte->ctrl_blk->last_rx_byte_cnt = 0;
-    p_libuarte->ctrl_blk->last_pin_rx_byte_cnt = 0;
 
     return ppi_configure(p_libuarte, p_config);
 }
@@ -467,8 +506,8 @@ void nrf_libuarte_drv_uninit(const nrf_libuarte_drv_t * const p_libuarte)
     nrf_uarte_event_clear(p_libuarte->uarte, NRF_UARTE_EVENT_TXSTOPPED);
     nrf_uarte_task_trigger(p_libuarte->uarte, NRF_UARTE_TASK_STOPTX);
     nrf_uarte_task_trigger(p_libuarte->uarte, NRF_UARTE_TASK_STOPRX);
-    while(nrf_uarte_event_check(p_libuarte->uarte,NRF_UARTE_EVENT_TXSTOPPED) == 0) {}
 
+    nrf_uarte_int_disable(p_libuarte->uarte, 0xFFFFFFFF);
     nrf_uarte_disable(p_libuarte->uarte);
 
     nrf_uarte_event_clear(p_libuarte->uarte, NRF_UARTE_EVENT_TXSTARTED);
@@ -487,6 +526,10 @@ void nrf_libuarte_drv_uninit(const nrf_libuarte_drv_t * const p_libuarte)
     nrfx_timer_disable(&p_libuarte->timer);
     nrfx_timer_uninit(&p_libuarte->timer);
 
+    if (LIBUARTE_DRV_WITH_HWFC && (p_libuarte->ctrl_blk->rts_pin != RTS_PIN_DISABLED))
+    {
+        nrfx_gpiote_out_uninit(p_libuarte->ctrl_blk->rts_pin);
+    }
     ppi_free(p_libuarte);
 }
 
@@ -546,10 +589,24 @@ ret_code_t nrf_libuarte_drv_rx_start(const nrf_libuarte_drv_t * const p_libuarte
         nrf_uarte_rx_buffer_set(p_libuarte->uarte, p_data, len);
     }
 
+    /* Reset byte counting */
+    nrfx_timer_enable(&p_libuarte->timer);
+    nrfx_timer_clear(&p_libuarte->timer);
+    p_libuarte->ctrl_blk->last_rx_byte_cnt = 0;
+    p_libuarte->ctrl_blk->last_pin_rx_byte_cnt = 0;
+
     nrf_uarte_event_clear(p_libuarte->uarte, NRF_UARTE_EVENT_ENDRX);
     nrf_uarte_event_clear(p_libuarte->uarte, NRF_UARTE_EVENT_RXSTARTED);
 
     rx_ppi_enable(p_libuarte);
+
+    if (LIBUARTE_DRV_WITH_HWFC && (p_libuarte->ctrl_blk->rts_pin != RTS_PIN_DISABLED))
+    {
+        uint32_t rx_limit = len - NRF_LIBUARTE_DRV_HWFC_BYTE_LIMIT;
+        *(uint32_t *)nrfx_gpiote_clr_task_addr_get(p_libuarte->ctrl_blk->rts_pin) = 1;
+        nrfx_timer_compare(&p_libuarte->timer, NRF_TIMER_CC_CHANNEL2, rx_limit, false);
+    }
+
     if (!ext_trigger_en)
     {
          nrf_uarte_task_trigger(p_libuarte->uarte, NRF_UARTE_TASK_STARTRX);
@@ -573,6 +630,17 @@ void nrf_libuarte_drv_rx_buf_rsp(const nrf_libuarte_drv_t * const p_libuarte,
                         p_libuarte->ctrl_blk->p_next_rx, p_data);
         p_libuarte->ctrl_blk->p_next_next_rx = p_data;
     }
+
+    if (LIBUARTE_DRV_WITH_HWFC && (p_libuarte->ctrl_blk->rts_pin != RTS_PIN_DISABLED))
+    {
+        uint32_t rx_limit = nrfx_timer_capture_get(&p_libuarte->timer, NRF_TIMER_CC_CHANNEL0) +
+                2*len - NRF_LIBUARTE_DRV_HWFC_BYTE_LIMIT;
+        nrfx_timer_compare(&p_libuarte->timer, NRF_TIMER_CC_CHANNEL2, rx_limit, false);
+        if (p_libuarte->ctrl_blk->rts_manual == false)
+        {
+            *(uint32_t *)nrfx_gpiote_clr_task_addr_get(p_libuarte->ctrl_blk->rts_pin) = 1;
+        }
+    }
 }
 
 void nrf_libuarte_drv_rx_stop(const nrf_libuarte_drv_t * const p_libuarte)
@@ -580,7 +648,29 @@ void nrf_libuarte_drv_rx_stop(const nrf_libuarte_drv_t * const p_libuarte)
     rx_ppi_disable(p_libuarte);
 
     NRF_LOG_DEBUG("RX stopped.");
+    if (LIBUARTE_DRV_WITH_HWFC && (p_libuarte->ctrl_blk->rts_pin != RTS_PIN_DISABLED))
+    {
+        *(uint32_t *)nrfx_gpiote_set_task_addr_get(p_libuarte->ctrl_blk->rts_pin) = 1;
+    }
     nrf_uarte_task_trigger(p_libuarte->uarte, NRF_UARTE_TASK_STOPRX);
+}
+
+void nrf_libuarte_drv_rts_clear(const nrf_libuarte_drv_t * const p_libuarte)
+{
+    if (LIBUARTE_DRV_WITH_HWFC && (p_libuarte->ctrl_blk->rts_pin != RTS_PIN_DISABLED))
+    {
+        *(uint32_t *)nrfx_gpiote_clr_task_addr_get(p_libuarte->ctrl_blk->rts_pin) = 1;
+        p_libuarte->ctrl_blk->rts_manual = false;
+    }
+}
+
+void nrf_libuarte_drv_rts_set(const nrf_libuarte_drv_t * const p_libuarte)
+{
+    if (LIBUARTE_DRV_WITH_HWFC && (p_libuarte->ctrl_blk->rts_pin != RTS_PIN_DISABLED))
+    {
+        p_libuarte->ctrl_blk->rts_manual = true;
+        *(uint32_t *)nrfx_gpiote_set_task_addr_get(p_libuarte->ctrl_blk->rts_pin) = 1;
+    }
 }
 
 static void irq_handler(const nrf_libuarte_drv_t * const p_libuarte)
@@ -658,12 +748,18 @@ static void irq_handler(const nrf_libuarte_drv_t * const p_libuarte)
             {
                 NRF_LOG_WARNING("RX END Chunk1:%d", chunk1);
 
-                evt.data.rxtx.length = chunk1;
-                evt.data.rxtx.p_data = p_libuarte->ctrl_blk->p_cur_rx;
+                nrf_libuarte_drv_evt_t err_evt = {
+                    .type = NRF_LIBUARTE_DRV_EVT_OVERRUN_ERROR,
+                    .data = {
+                            .overrun_err = {
+                                    .overrun_length = chunk1
+                            }
+                    }
+                };
+                p_libuarte->ctrl_blk->evt_handler(p_libuarte->ctrl_blk->context, &err_evt);
 
                 p_libuarte->ctrl_blk->p_cur_rx  = p_libuarte->ctrl_blk->p_next_rx;
                 p_libuarte->ctrl_blk->p_next_rx = NULL;
-                p_libuarte->ctrl_blk->evt_handler(p_libuarte->ctrl_blk->context, &evt);
             }
         }
     }
