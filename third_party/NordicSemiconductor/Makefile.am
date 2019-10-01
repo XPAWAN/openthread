@@ -134,11 +134,12 @@ NORDICSEMI_USB_SOURCES                                                          
 
 NORDICSEMI_UARTE_SOURCES                                                                                                = \
     libraries/balloc/nrf_balloc.c                                                                                         \
-    libraries/libuarte/nrf_libuarte_drv.c                                                                                     \
+    libraries/libuarte/nrf_libuarte_drv.c                                                                                 \
     libraries/libuarte/nrf_libuarte_async.c                                                                               \
     libraries/queue/nrf_queue.c                                                                                           \
     nrfx/drivers/src/nrfx_ppi.c                                                                                           \
     nrfx/drivers/src/nrfx_timer.c                                                                                         \
+    nrfx/drivers/src/nrfx_gpiote.c                                                                                        \
     $(NULL)
 
 NORDICSEMI_NRF52840_SOURCES                                                                                             = \
